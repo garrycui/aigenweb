@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, ThumbsUp, Clock } from 'lucide-react';
+import { MessageSquare, ThumbsUp } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import ChatGptQA from '../components/ChatGptQA';
 import { fetchPosts, toggleLike } from '../lib/api';
@@ -14,7 +14,7 @@ interface Post {
   video_url?: string;
   likes_count: number;
   comments_count: number;
-  created_at: any;
+  createdAt: any;
   user_name: string;
   user_id: string;
   is_liked?: boolean;
@@ -27,6 +27,52 @@ const Forum = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const formatTimeAgo = (timestamp: any) => {
+    if (!timestamp) return '';
+    
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) {
+      return 'just now';
+    }
+    
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes}m ago`;
+    }
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) {
+      return `${diffInHours}h ago`;
+    }
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) {
+      return `${diffInDays}d ago`;
+    }
+    
+    return date.toLocaleDateString();
+  };
+
+  useEffect(() => {
+    const loadPosts = async () => {
+      try {
+        setIsLoading(true);
+        const { data } = await fetchPosts();
+        setPosts(data || []);
+      } catch (err) {
+        console.error('Error loading posts:', err);
+        setError('Failed to load posts. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPosts();
+  }, []);
+
   const handleLike = async (postId: string) => {
     if (!user) {
       navigate('/login');
@@ -36,7 +82,6 @@ const Forum = () => {
     try {
       const isLiked = await toggleLike('post', postId, user.id);
       
-      // Update local state
       setPosts(currentPosts =>
         currentPosts.map(post =>
           post.id === postId
@@ -51,28 +96,6 @@ const Forum = () => {
     } catch (error) {
       console.error('Error toggling like:', error);
     }
-  };
-
-  useEffect(() => {
-    const loadPosts = async () => {
-      try {
-        setIsLoading(true);
-        const { data } = await fetchPosts();
-        setPosts(data || []);
-      } catch (err) {
-        setError('Failed to load posts. Please try again later.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadPosts();
-  }, []);
-
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return '';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString();
   };
 
   if (isLoading) {
@@ -118,7 +141,7 @@ const Forum = () => {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Community Forum</h1>
-          <p className="text-gray-600">Share your AI journey and learn from others</p>
+          <p className="text-gray-600">Top posts from this week</p>
         </div>
         <Link
           to="/forum/new"
@@ -143,10 +166,9 @@ const Forum = () => {
                   <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full w-fit">
                     {post.category}
                   </span>
-                  <div className="flex items-center text-gray-500 text-sm">
-                    <Clock className="h-4 w-4 mr-1" />
-                    {formatDate(post.created_at)}
-                  </div>
+                  <span className="text-sm text-gray-500">
+                    {formatTimeAgo(post.createdAt)}
+                  </span>
                 </div>
                 
                 <Link to={`/forum/${post.id}`}>
@@ -182,11 +204,11 @@ const Forum = () => {
                       ) : (
                         <ThumbsUp className="h-5 w-5" />
                       )}
-                      <span>{post.likes_count}</span>
+                      <span>{post.likes_count || 0}</span>
                     </button>
                     <div className="flex items-center space-x-1 text-gray-500">
                       <MessageSquare className="h-5 w-5" />
-                      <span>{post.comments_count}</span>
+                      <span>{post.comments_count || 0}</span>
                     </div>
                   </div>
                   <div className="text-sm text-gray-500">
