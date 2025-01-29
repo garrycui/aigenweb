@@ -1,0 +1,205 @@
+import React, { useState, useEffect } from 'react';
+import { MessageSquare, ThumbsUp, Clock } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import ChatGptQA from '../components/ChatGptQA';
+import { fetchPosts, toggleLike } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+
+interface Post {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  image_url?: string;
+  video_url?: string;
+  likes_count: number;
+  comments_count: number;
+  created_at: any;
+  user_name: string;
+  user_id: string;
+  is_liked?: boolean;
+}
+
+const Forum = () => {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLike = async (postId: string) => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const isLiked = await toggleLike('post', postId, user.id);
+      
+      // Update local state
+      setPosts(currentPosts =>
+        currentPosts.map(post =>
+          post.id === postId
+            ? { 
+                ...post, 
+                likes_count: post.likes_count + (isLiked ? 1 : -1),
+                is_liked: isLiked
+              }
+            : post
+        )
+      );
+    } catch (error) {
+      console.error('Error toggling like:', error);
+    }
+  };
+
+  useEffect(() => {
+    const loadPosts = async () => {
+      try {
+        setIsLoading(true);
+        const { data } = await fetchPosts();
+        setPosts(data || []);
+      } catch (err) {
+        setError('Failed to load posts. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPosts();
+  }, []);
+
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="max-w-4xl mx-auto px-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Community Forum</h1>
+            <p className="text-gray-600">Share your AI journey and learn from others</p>
+          </div>
+        </div>
+        <div className="flex justify-center items-center min-h-[400px]">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto px-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Community Forum</h1>
+            <p className="text-gray-600">Share your AI journey and learn from others</p>
+          </div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          <p className="font-medium">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto px-4">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Community Forum</h1>
+          <p className="text-gray-600">Share your AI journey and learn from others</p>
+        </div>
+        <Link
+          to="/forum/new"
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors text-center"
+        >
+          Share Your Story
+        </Link>
+      </div>
+
+      <ChatGptQA type="forum" />
+
+      {posts.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-lg shadow-md">
+          <p className="text-gray-600">No posts yet. Be the first to share your story!</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {posts.map(post => (
+            <div key={post.id} className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                  <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full w-fit">
+                    {post.category}
+                  </span>
+                  <div className="flex items-center text-gray-500 text-sm">
+                    <Clock className="h-4 w-4 mr-1" />
+                    {formatDate(post.created_at)}
+                  </div>
+                </div>
+                
+                <Link to={`/forum/${post.id}`}>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-2 hover:text-indigo-600 transition-colors">
+                    {post.title}
+                  </h2>
+                </Link>
+                
+                <p className="text-gray-600 mb-4">
+                  {post.content.length > 150 ? `${post.content.slice(0, 150)}...` : post.content}
+                </p>
+
+                {post.image_url && (
+                  <img
+                    src={post.image_url}
+                    alt="Post illustration"
+                    className="w-full h-48 object-cover rounded-lg mb-4"
+                  />
+                )}
+                
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t">
+                  <div className="flex items-center space-x-4">
+                    <button
+                      onClick={() => handleLike(post.id)}
+                      className={`flex items-center space-x-1 ${
+                        post.is_liked
+                          ? 'text-indigo-600'
+                          : 'text-gray-500 hover:text-indigo-600'
+                      }`}
+                    >
+                      {post.is_liked ? (
+                        <ThumbsUp className="h-5 w-5 fill-current" />
+                      ) : (
+                        <ThumbsUp className="h-5 w-5" />
+                      )}
+                      <span>{post.likes_count}</span>
+                    </button>
+                    <div className="flex items-center space-x-1 text-gray-500">
+                      <MessageSquare className="h-5 w-5" />
+                      <span>{post.comments_count}</span>
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Posted by <span className="font-medium">{post.user_name}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Forum;
