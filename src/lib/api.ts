@@ -20,7 +20,7 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
   try {
     // Create assessment document
     const assessmentRef = await addDoc(collection(db, 'assessments'), {
-      user_id: userId,
+      userId: userId,
       mbti_type: assessmentData.mbti_type,
       createdAt: serverTimestamp()
     });
@@ -128,7 +128,7 @@ export const fetchPost = async (postId: string) => {
         return {
           id: replyDoc.id,
           content: replyData.content || '',
-          user_id: replyData.userId || '',
+          userId: replyData.userId || '',
           user_name: replyData.user_name || '',
           likes_count: replyLikesSnapshot.size || 0,
           created_at: replyData.createdAt || null
@@ -138,7 +138,7 @@ export const fetchPost = async (postId: string) => {
       return {
         id: commentDoc.id,
         content: commentData.content || '',
-        user_id: commentData.userId || '',
+        userId: commentData.userId || '',
         user_name: commentData.user_name || '',
         likes_count: commentLikesSnapshot.size || 0,
         created_at: commentData.createdAt || null,
@@ -156,7 +156,7 @@ export const fetchPost = async (postId: string) => {
       category: postData.category || '',
       image_url: postData.image_url || '',
       video_url: postData.video_url || '',
-      user_id: postData.userId || '',
+      userId: postData.userId || '',
       user_name: postData.user_name || '',
       likes_count: likesSnapshot.size || 0,
       comments_count: comments.length || 0,
