@@ -1,6 +1,7 @@
 import React from 'react';
 import { BookOpen, Target, Trophy, TrendingUp } from 'lucide-react';
-import ChatGptQA from '../components/ChatGptQA';
+import AIChat from '../components/AIChat';
+import DailyContent from '../components/DailyContent';
 
 const Dashboard = () => {
   return (
@@ -57,51 +58,56 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Recommended Resources</h2>
-          <ChatGptQA type="resources" />
-          <div className="space-y-4">
-            {[
-              "Introduction to Machine Learning",
-              "AI Ethics and Best Practices",
-              "Practical AI Tools for Productivity"
-            ].map((course, index) => (
-              <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <div className="bg-indigo-100 p-2 rounded">
-                    <BookOpen className="h-5 w-5 text-indigo-600" />
+        <div className="space-y-8">
+          <DailyContent />
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Recommended Resources</h2>
+            <div className="space-y-4">
+              {[
+                "Introduction to Machine Learning",
+                "AI Ethics and Best Practices",
+                "Practical AI Tools for Productivity"
+              ].map((course, index) => (
+                <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <div className="bg-indigo-100 p-2 rounded">
+                      <BookOpen className="h-5 w-5 text-indigo-600" />
+                    </div>
+                    <span className="font-medium text-gray-800">{course}</span>
                   </div>
-                  <span className="font-medium text-gray-800">{course}</span>
+                  <button className="text-indigo-600 hover:text-indigo-700">Start</button>
                 </div>
-                <button className="text-indigo-600 hover:text-indigo-700">Start</button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Learning Path</h2>
-          <div className="relative">
-            <div className="absolute left-4 top-0 h-full w-0.5 bg-gray-200"></div>
-            <div className="space-y-6">
-              {[
-                { title: "Complete Assessment", status: "completed" },
-                { title: "Set Learning Goals", status: "completed" },
-                { title: "Start Basic Course", status: "in-progress" },
-                { title: "Join Community Discussion", status: "pending" }
-              ].map((step, index) => (
-                <div key={index} className="relative flex items-center">
-                  <div className={`absolute left-4 -ml-2 h-4 w-4 rounded-full border-2 ${
-                    step.status === 'completed' ? 'bg-green-500 border-green-500' :
-                    step.status === 'in-progress' ? 'bg-yellow-500 border-yellow-500' :
-                    'bg-white border-gray-300'
-                  }`}></div>
-                  <div className="ml-8">
-                    <h3 className="font-medium text-gray-900">{step.title}</h3>
-                    <p className="text-sm text-gray-500 capitalize">{step.status}</p>
+        <div className="space-y-8">
+          <AIChat />
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Learning Path</h2>
+            <div className="relative">
+              <div className="absolute left-4 top-0 h-full w-0.5 bg-gray-200"></div>
+              <div className="space-y-6">
+                {[
+                  { title: "Complete Assessment", status: "completed" },
+                  { title: "Set Learning Goals", status: "completed" },
+                  { title: "Start Basic Course", status: "in-progress" },
+                  { title: "Join Community Discussion", status: "pending" }
+                ].map((step, index) => (
+                  <div key={index} className="relative flex items-center">
+                    <div className={`absolute left-4 -ml-2 h-4 w-4 rounded-full border-2 ${
+                      step.status === 'completed' ? 'bg-green-500 border-green-500' :
+                      step.status === 'in-progress' ? 'bg-yellow-500 border-yellow-500' :
+                      'bg-white border-gray-300'
+                    }`}></div>
+                    <div className="ml-8">
+                      <h3 className="font-medium text-gray-900">{step.title}</h3>
+                      <p className="text-sm text-gray-500 capitalize">{step.status}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>

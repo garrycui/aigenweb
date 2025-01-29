@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, ThumbsUp } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import ChatGptQA from '../components/ChatGptQA';
+import AIChat from '../components/AIChat';
 import { fetchPosts, toggleLike } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -151,7 +151,7 @@ const Forum = () => {
         </Link>
       </div>
 
-      <ChatGptQA type="forum" />
+      <AIChat type="forum" />
 
       {posts.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg shadow-md">
