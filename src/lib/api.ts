@@ -15,13 +15,49 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 
+// Calculate AI preference based on assessment answers
+const calculateAIPreference = (answers: any[]) => {
+  // Get answers for questions 5 and 6 (AI-specific questions)
+  const aiToolResponse = answers.find(a => a.question_id === 5)?.answer || '';
+  const aiImpactResponse = answers.find(a => a.question_id === 6)?.answer || '';
+  
+  // Score mapping for question 5 (AI tool response)
+  const toolScores: { [key: string]: number } = {
+    "Dive right in and experiment": 4,
+    "Wait for a training session": 3,
+    "Watch colleagues use it first": 2,
+    "Prefer to avoid using it unless necessary": 1
+  };
+
+  // Score mapping for question 6 (AI impact feeling)
+  const impactScores: { [key: string]: number } = {
+    "Excited about the possibilities": 4,
+    "Cautiously optimistic": 3,
+    "Somewhat concerned": 2,
+    "Very worried": 1
+  };
+
+  const toolScore = toolScores[aiToolResponse] || 2;
+  const impactScore = impactScores[aiImpactResponse] || 2;
+  const averageScore = (toolScore + impactScore) / 2;
+
+  // Determine AI preference category
+  if (averageScore >= 3.5) return 'enthusiastic';
+  if (averageScore >= 2.5) return 'optimistic';
+  if (averageScore >= 1.5) return 'cautious';
+  return 'resistant';
+};
+
 // Assessment Functions
 export const saveAssessment = async (userId: string, assessmentData: any) => {
   try {
+    const aiPreference = calculateAIPreference(assessmentData.answers);
+
     // Create assessment document
     const assessmentRef = await addDoc(collection(db, 'assessments'), {
       userId: userId,
       mbti_type: assessmentData.mbti_type,
+      ai_preference: aiPreference,
       createdAt: serverTimestamp()
     });
 
@@ -39,6 +75,42 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
   } catch (error) {
     console.error('Error saving assessment:', error);
     throw error;
+  }
+};
+
+// Get latest assessment results
+export const getLatestAssessment = async (userId: string) => {
+  try {
+    const assessmentsRef = collection(db, 'assessments');
+    const q = query(
+      assessmentsRef,
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+      return { data: null };
+    }
+
+    const assessmentDoc = querySnapshot.docs[0];
+    const answersRef = collection(db, 'assessments', assessmentDoc.id, 'answers');
+    const answersSnapshot = await getDocs(answersRef);
+
+    const assessment = {
+      id: assessmentDoc.id,
+      ...assessmentDoc.data(),
+      answers: answersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+    };
+
+    return { data: assessment };
+  } catch (error) {
+    console.error('Error fetching assessment:', error);
+    return { data: null, error };
   }
 };
 

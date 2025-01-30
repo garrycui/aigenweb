@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { generateChatResponse, getResourceRecommendations } from '../lib/openai';
+import { processChatMessage, getChatHistory } from '../lib/chat';
+import { getResourceRecommendations } from '../lib/openai';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  timestamp: Date;
+  sentiment?: 'positive' | 'negative' | 'neutral';
+  timestamp: string;
 }
 
 interface Resource {
@@ -33,6 +35,22 @@ const AIChat = () => {
     scrollToBottom();
   }, [messages]);
 
+  // Load chat history
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!user) return;
+      
+      try {
+        const history = await getChatHistory(user.id);
+        setMessages(history);
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    };
+
+    loadHistory();
+  }, [user]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !user) return;
@@ -41,38 +59,41 @@ const AIChat = () => {
     setInput('');
     setIsLoading(true);
 
-    // Add user message immediately
-    setMessages(prev => [...prev, {
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date()
-    }]);
-
     try {
-      // Get ChatGPT response
-      const { response } = await generateChatResponse(
-        userMessage,
-        user.id,
-        user.mbtiType,
-        user.aiPreference
-      );
+      // Add user message immediately for better UX
+      setMessages(prev => [...prev, {
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date().toISOString()
+      }]);
 
-      // Get relevant resources
+      // Process message and get response
+      const { response, sentiment, userContext } = await processChatMessage(user.id, userMessage);
+
+      // Update messages with assistant response
+      setMessages(prev => [
+        ...prev.slice(0, -1), // Remove temporary user message
+        {
+          role: 'user',
+          content: userMessage,
+          sentiment,
+          timestamp: new Date().toISOString()
+        },
+        {
+          role: 'assistant',
+          content: response,
+          timestamp: new Date().toISOString()
+        }
+      ]);
+
+      // Get relevant resources based on context
       const recommendations = await getResourceRecommendations(
         user.id,
         userMessage,
-        user.mbtiType,
-        user.aiPreference
+        userContext.mbtiType,
+        userContext.aiPreference
       );
 
-      // Add assistant response
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: response,
-        timestamp: new Date()
-      }]);
-
-      // Update recommended resources
       if (recommendations.posts.length > 0) {
         setResources(recommendations.posts.map(post => ({
           id: post.id,
@@ -87,10 +108,26 @@ const AIChat = () => {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'I apologize, but I encountered an error. Please try again.',
-        timestamp: new Date()
+        timestamp: new Date().toISOString()
       }]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const formatTime = (timestamp: string) => {
+    return new Date(timestamp).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit'
+    });
+  };
+
+  const getSentimentColor = (sentiment?: string) => {
+    switch (sentiment) {
+      case 'positive': return 'bg-green-100 border-green-300';
+      case 'negative': return 'bg-red-100 border-red-300';
+      case 'neutral': return 'bg-gray-100 border-gray-300';
+      default: return '';
     }
   };
 
@@ -110,15 +147,15 @@ const AIChat = () => {
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] rounded-lg p-3 ${
+              className={`max-w-[80%] rounded-lg p-3 border ${
                 message.role === 'user'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-100 text-gray-800'
+                  ? `${getSentimentColor(message.sentiment)}`
+                  : 'bg-indigo-50 border-indigo-200'
               }`}
             >
               <p className="text-sm">{message.content}</p>
-              <span className="text-xs opacity-75 mt-1 block">
-                {message.timestamp.toLocaleTimeString()}
+              <span className="text-xs text-gray-500 mt-1 block">
+                {formatTime(message.timestamp)}
               </span>
             </div>
           </div>
