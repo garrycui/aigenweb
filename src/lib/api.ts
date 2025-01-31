@@ -119,9 +119,9 @@ export const fetchPosts = async () => {
   try {
     const postsRef = collection(db, 'posts');
     
-    // Calculate date 7 days ago
+    // Calculate date 1 days ago
     const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 1);
     
     // Create query for posts from the last week
     const q = query(
@@ -153,10 +153,10 @@ export const fetchPosts = async () => {
       };
     }));
 
-    // Sort by engagement score and take top 5
+    // Sort by engagement score and take top 10
     const sortedPosts = posts
       .sort((a, b) => b.engagement_score - a.engagement_score)
-      .slice(0, 5);
+      .slice(0, 10);
 
     return { data: sortedPosts };
   } catch (error) {

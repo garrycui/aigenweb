@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import Home from './pages/Home';
@@ -8,8 +8,10 @@ import Forum from './pages/Forum';
 import PostDetail from './pages/PostDetail';
 import NewPost from './pages/NewPost';
 import Dashboard from './pages/Dashboard';
+import Assistant from './pages/Assistant';
 import { PostProvider } from './context/PostContext';
 import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -22,11 +24,55 @@ function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/questionnaire" element={<Questionnaire />} />
-                <Route path="/forum" element={<Forum />} />
-                <Route path="/forum/:id" element={<PostDetail />} />
-                <Route path="/forum/new" element={<NewPost />} />
-                <Route path="/dashboard" element={<Dashboard />} />
+                <Route 
+                  path="/questionnaire" 
+                  element={
+                    <ProtectedRoute>
+                      <Questionnaire />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/forum" 
+                  element={
+                    <ProtectedRoute>
+                      <Forum />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/forum/:id" 
+                  element={
+                    <ProtectedRoute>
+                      <PostDetail />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/forum/new" 
+                  element={
+                    <ProtectedRoute>
+                      <NewPost />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    <ProtectedRoute>
+                      <Dashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/assistant" 
+                  element={
+                    <ProtectedRoute>
+                      <Assistant />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
           </div>

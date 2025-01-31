@@ -1,22 +1,30 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Brain, Users, LayoutDashboard, Menu, X, LogOut } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Brain, Users, LayoutDashboard, Menu, X, LogOut, Bot, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
+  const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
 
   const NavLinks = () => (
     <>
       {user ? (
         <>
           <Link 
-            to="/questionnaire" 
+            to="/assistant" 
             className="flex items-center space-x-1 text-gray-600 hover:text-indigo-600"
             onClick={() => setIsMenuOpen(false)}
           >
-            <span>Assessment</span>
+            <Bot className="h-4 w-4" />
+            <span>AI Companion</span>
           </Link>
           <Link 
             to="/forum" 
@@ -34,18 +42,42 @@ const Navbar = () => {
             <LayoutDashboard className="h-4 w-4" />
             <span>Dashboard</span>
           </Link>
-          <div className="flex items-center space-x-4 text-gray-600">
-            <span className="font-medium border-r pr-4">{user.name}</span>
+          <div className="relative">
             <button
-              onClick={() => {
-                signOut();
-                setIsMenuOpen(false);
-              }}
-              className="flex items-center space-x-1 hover:text-indigo-600"
+              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+              className="flex items-center space-x-1 text-gray-600 hover:text-indigo-600"
             >
-              <LogOut className="h-4 w-4" />
-              <span>Sign Out</span>
+              <span className="font-medium">{user.name}</span>
+              <ChevronDown className="h-4 w-4" />
             </button>
+            
+            {isUserMenuOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+                <Link
+                  to="/questionnaire"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  Assessment
+                </Link>
+                <button
+                  onClick={() => {
+                    handleSignOut();
+                    setIsUserMenuOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  <div className="flex items-center space-x-2">
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign Out</span>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
         </>
       ) : (

@@ -1,10 +1,31 @@
-import React from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getLatestAssessment } from '../lib/api';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAssessment = async () => {
+      if (user && location.pathname !== '/questionnaire') {
+        try {
+          const { data: assessment } = await getLatestAssessment(user.id);
+          if (!assessment && location.pathname !== '/questionnaire') {
+            navigate('/questionnaire');
+          } else if (assessment && location.pathname === '/') {
+            navigate('/assistant');
+          }
+        } catch (error) {
+          console.error('Error checking assessment:', error);
+        }
+      }
+    };
+
+    checkAssessment();
+  }, [user, location.pathname, navigate]);
 
   if (isLoading) {
     return (
@@ -18,7 +39,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

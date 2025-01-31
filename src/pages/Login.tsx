@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getLatestAssessment } from '../lib/api';
 
 type ValidationErrors = {
   email?: string;
@@ -22,10 +23,23 @@ const Login = () => {
   const [signUpSuccess, setSignUpSuccess] = useState(false);
 
   useEffect(() => {
-    if (user && !isLoading) {
-      const redirectPath = user.hasCompletedAssessment ? '/dashboard' : '/questionnaire';
-      navigate(redirectPath, { replace: true });
-    }
+    const checkUserAssessment = async () => {
+      if (user && !isLoading) {
+        try {
+          const { data: assessment } = await getLatestAssessment(user.id);
+          if (assessment) {
+            navigate('/assistant', { replace: true });
+          } else {
+            navigate('/questionnaire', { replace: true });
+          }
+        } catch (error) {
+          console.error('Error checking assessment:', error);
+          navigate('/questionnaire', { replace: true });
+        }
+      }
+    };
+
+    checkUserAssessment();
   }, [user, isLoading, navigate]);
 
   const validateForm = (): boolean => {
