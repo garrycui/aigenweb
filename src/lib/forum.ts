@@ -61,7 +61,7 @@ export const fetchPosts = async (userId: string | null) => {
         [userId]
       );
 
-      const likedPostIds = new Set(likes?.map(l => l.post_id));
+      const likedPostIds = new Set(likes?.map((l: { post_id: string }) => l.post_id));
 
       return posts.map((post: any) => ({
         ...post,
@@ -135,9 +135,9 @@ export const fetchPost = async (postId: string, userId: string | null) => {
         WHERE user_id = $1
       `, [userId]);
 
-      const likedPosts = new Set(likes?.filter(l => l.post_id).map(l => l.post_id));
-      const likedComments = new Set(likes?.filter(l => l.comment_id).map(l => l.comment_id));
-      const likedReplies = new Set(likes?.filter(l => l.reply_id).map(l => l.reply_id));
+      const likedPosts = new Set(likes?.filter((l: { post_id: string | null }) => l.post_id).map((l: { post_id: string }) => l.post_id));
+      const likedComments = new Set(likes?.filter((l: { comment_id: string | null }) => l.comment_id).map((l: { comment_id: string }) => l.comment_id));
+      const likedReplies = new Set(likes?.filter((l: { reply_id: string | null }) => l.reply_id).map((l: { reply_id: string }) => l.reply_id));
 
       return {
         ...post,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, ThumbsUp, Clock, Share2, Bookmark, ArrowLeft } from 'lucide-react';
 import { fetchPost, createComment, createReply, toggleLike } from '../lib/api';
@@ -9,7 +9,7 @@ interface Reply {
   content: string;
   likes_count: number;
   created_at: any;
-  user_id: string;
+  userId: string;
   user_name: string;
   is_liked?: boolean;
 }
@@ -19,7 +19,7 @@ interface Comment {
   content: string;
   likes_count: number;
   created_at: any;
-  user_id: string;
+  userId: string;
   user_name: string;
   replies: Reply[];
   is_liked?: boolean;
@@ -35,7 +35,7 @@ interface Post {
   likes_count: number;
   comments_count: number;
   created_at: any;
-  user_id: string;
+  userId: string;
   user_name: string;
   comments: Comment[];
   is_liked?: boolean;
@@ -215,15 +215,18 @@ const PostDetail = () => {
           )}
 
           {post.video_url && (
-            <div className="aspect-w-16 aspect-h-9 mb-6">
+            <div className="w-full h-96 mb-6">
               <iframe
                 src={post.video_url}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
-                className="rounded-lg"
+                className="w-full h-full rounded-lg"
               ></iframe>
             </div>
           )}
+          <p className="mt-4 text-gray-600">
+            {/* Your references here */}
+          </p>
           
           <div className="flex items-center justify-between border-t pt-4">
             <div className="flex items-center space-x-4">

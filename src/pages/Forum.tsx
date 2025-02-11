@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageSquare, ThumbsUp } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import AIChat from '../components/AIChat';
@@ -61,7 +61,21 @@ const Forum = () => {
       try {
         setIsLoading(true);
         const { data } = await fetchPosts();
-        setPosts(data || []);
+        const formattedData = data.map((post: any) => ({
+          id: post.id,
+          title: post.title || '',
+          content: post.content || '',
+          category: post.category || '',
+          image_url: post.image_url,
+          video_url: post.video_url,
+          likes_count: post.likes_count,
+          comments_count: post.comments_count,
+          createdAt: post.createdAt,
+          user_name: post.user_name || '',
+          user_id: post.user_id || '',
+          is_liked: post.is_liked || false,
+        }));
+        setPosts(formattedData || []);
       } catch (err) {
         console.error('Error loading posts:', err);
         setError('Failed to load posts. Please try again later.');
@@ -151,7 +165,7 @@ const Forum = () => {
         </Link>
       </div>
 
-      <AIChat type="forum" />
+      <AIChat />
 
       {posts.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg shadow-md">

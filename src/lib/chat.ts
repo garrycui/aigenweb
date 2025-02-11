@@ -1,8 +1,8 @@
 import vader from 'vader-sentiment';
-import { collection, doc, getDoc, setDoc, updateDoc, arrayUnion, query, where, orderBy, limit, getDocs, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, updateDoc, arrayUnion, query, orderBy, limit, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { getLatestAssessment } from './api';
-import { generateChatResponse } from './openai';
+import { generateChatResponse, getResourceRecommendations } from './openai';
 
 interface ChatMessage {
   content: string;
@@ -102,11 +102,14 @@ export const processChatMessage = async (userId: string, message: string) => {
     const mbtiType = assessment?.mbti_type;
     const aiPreference = assessment?.ai_preference;
 
+    // Get chat history
+    const chatHistory = await getChatHistory(userId);
+
     // Save user message with sentiment
     const { sentiment } = await saveChatMessage(userId, message, 'user');
 
-    // Generate response considering user context
-    const response = await generateChatResponse(message, userId, mbtiType, aiPreference);
+    // Generate response considering user context and chat history
+    const response = await generateChatResponse(message, userId, chatHistory, mbtiType, aiPreference);
 
     if (!response || !response.response) {
       throw new Error('Failed to generate chat response');
@@ -115,13 +118,29 @@ export const processChatMessage = async (userId: string, message: string) => {
     // Save assistant response
     await saveChatMessage(userId, response.response, 'assistant');
 
+    // Check if the user is asking for recommendations or learning resources
+    let recommendations: { id: string; title: string; content: string; link: string }[] = [];
+    const recommendationKeywords = ['recommend', 'suggest', 'advise', 'help me find', 'looking for', 'learn', 'more about'];
+    const isAskingForRecommendation = recommendationKeywords.some(keyword => message.toLowerCase().includes(keyword));
+
+    if (isAskingForRecommendation) {
+      const recommendationResult = await getResourceRecommendations(userId, message, mbtiType, aiPreference);
+      recommendations = recommendationResult.posts.map(post => ({
+        id: post.id,
+        title: post.title,
+        content: post.content,
+        link: `/posts/${post.id}`
+      }));
+    }
+
     return {
       response: response.response,
       sentiment,
       userContext: {
         mbtiType,
         aiPreference
-      }
+      },
+      recommendations
     };
   } catch (error) {
     console.error('Error processing chat message:', error);
