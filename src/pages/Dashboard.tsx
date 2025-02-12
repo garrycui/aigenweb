@@ -1,9 +1,21 @@
-import React from 'react';
-import { BookOpen, Target, Trophy, TrendingUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { BookOpen, Target, Trophy, TrendingUp, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import AIChat from '../components/AIChat';
 import DailyContent from '../components/DailyContent';
+import ReviewModal from '../components/ReviewModal';
+import TutorialList from '../components/TutorialList';
+import { useReviewPrompt } from '../hooks/useReviewPrompt';
 
 const Dashboard = () => {
+  const { showReview, setShowReview } = useReviewPrompt();
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(showReview);
+
+  const handleCloseReviewModal = () => {
+    setIsReviewModalOpen(false);
+    setShowReview(false);
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
       <div className="mb-8">
@@ -60,25 +72,20 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-8">
           <DailyContent />
+          
+          {/* Recommended Tutorials Section */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Recommended Resources</h2>
-            <div className="space-y-4">
-              {[
-                "Introduction to Machine Learning",
-                "AI Ethics and Best Practices",
-                "Practical AI Tools for Productivity"
-              ].map((course, index) => (
-                <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="bg-indigo-100 p-2 rounded">
-                      <BookOpen className="h-5 w-5 text-indigo-600" />
-                    </div>
-                    <span className="font-medium text-gray-800">{course}</span>
-                  </div>
-                  <button className="text-indigo-600 hover:text-indigo-700">Start</button>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-gray-900">Recommended Tutorials</h2>
+              <Link 
+                to="/tutorials" 
+                className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center"
+              >
+                View All
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Link>
             </div>
+            <TutorialList />
           </div>
         </div>
 
@@ -112,6 +119,13 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Review Modal */}
+      <ReviewModal
+        isOpen={isReviewModalOpen}
+        onClose={handleCloseReviewModal}
+        platform="web"
+      />
     </div>
   );
 };

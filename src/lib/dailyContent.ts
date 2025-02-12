@@ -1,29 +1,19 @@
 import { db } from './firebase';
 import { collection, addDoc, query, where, getDocs, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { generateChatResponse } from './openai';
+import { getLatestAssessment } from './api';
 
-export const generateDailyContent = async (userId: string, mbtiType?: string, aiPreference?: string) => {
+export const generateDailyContent = async (userId: string) => {
   try {
-    // Check if content already exists for today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const contentRef = collection(db, 'dailyContent');
-    const q = query(
-      contentRef,
-      where('userId', '==', userId),
-      where('createdAt', '>=', Timestamp.fromDate(today))
-    );
-    
-    const snapshot = await getDocs(q);
-    if (!snapshot.empty) {
-      return snapshot.docs[0].data();
-    }
+    // Get user's assessment results for personalization
+    const { data: assessment } = await getLatestAssessment(userId);
+    const mbtiType = assessment?.mbti_type;
+    const aiPreference = assessment?.ai_preference;
 
-    // Generate new content using ChatGPT
+    // Generate content using ChatGPT
     const prompt = `Generate an inspiring ${Math.random() > 0.5 ? 'quote' : 'joke'} about AI and technology that would resonate with a ${mbtiType || 'person'} who is ${aiPreference || ''} about AI. Make it encouraging and uplifting.`;
     
-    const { response } = await generateChatResponse(prompt, userId, mbtiType, aiPreference);
+    const { response } = await generateChatResponse(prompt, userId, [], mbtiType, aiPreference);
 
     // Save to Firestore
     const content = {
@@ -33,11 +23,10 @@ export const generateDailyContent = async (userId: string, mbtiType?: string, ai
       createdAt: serverTimestamp()
     };
 
-    const docRef = await addDoc(contentRef, content);
+    const docRef = await addDoc(collection(db, 'dailyContent'), content);
     return { id: docRef.id, ...content };
   } catch (error) {
     console.error('Error generating daily content:', error);
-    // Return a default content if generation fails
     return {
       userId,
       content: "Technology is not just a tool. It's an extension of human capability.",
@@ -67,7 +56,6 @@ export const getDailyContent = async (userId: string) => {
     return snapshot.docs[0].data();
   } catch (error) {
     console.error('Error fetching daily content:', error);
-    // Return a default content if fetch fails
     return {
       userId,
       content: "Technology is not just a tool. It's an extension of human capability.",

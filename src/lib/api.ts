@@ -98,9 +98,17 @@ export const getLatestAssessment = async (userId: string) => {
     const answersRef = collection(db, 'assessments', assessmentDoc.id, 'answers');
     const answersSnapshot = await getDocs(answersRef);
 
+    // Cast the data to include mbti_type and ai_preference
+    const rawData = assessmentDoc.data() as {
+      userId: string;
+      mbti_type: string;
+      ai_preference: string;
+      createdAt: any;
+    };
+
     const assessment = {
       id: assessmentDoc.id,
-      ...assessmentDoc.data(),
+      ...rawData,
       answers: answersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -115,50 +123,51 @@ export const getLatestAssessment = async (userId: string) => {
 };
 
 // Forum Functions
-export const fetchPosts = async () => {
+export const fetchPosts = async (
+	sortBy: 'date' | 'likes' | 'comments' = 'date',
+	page: number = 1
+) => {
   try {
     const postsRef = collection(db, 'posts');
-    
-    // Calculate date 1 days ago
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 1);
-    
-    // Create query for posts from the last week
-    const q = query(
-      postsRef,
-      where('createdAt', '>=', Timestamp.fromDate(oneWeekAgo)),
-      orderBy('createdAt', 'desc')
-    );
-    
+    // Remove date filtering; query all posts
+    const q = query(postsRef);
     const querySnapshot = await getDocs(q);
-    
-    // Get all posts with their engagement metrics
+
+    // Get posts with engagement metrics
     const posts = await Promise.all(querySnapshot.docs.map(async (postDoc) => {
       const data = postDoc.data();
-      
-      // Get comments count
       const commentsSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'comments'));
       const commentsCount = commentsSnapshot.size;
-
-      // Get likes count
       const likesSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'likes'));
       const likesCount = likesSnapshot.size;
-
       return {
         id: postDoc.id,
         ...data,
         comments_count: commentsCount || 0,
         likes_count: likesCount || 0,
-        engagement_score: (likesCount || 0) + (commentsCount || 0) // Calculate engagement score
+        engagement_score: (likesCount || 0) + (commentsCount || 0),
+        createdAt: data.createdAt || null
       };
     }));
 
-    // Sort by engagement score and take top 10
-    const sortedPosts = posts
-      .sort((a, b) => b.engagement_score - a.engagement_score)
-      .slice(0, 10);
+    // Sort posts based on sortBy param
+    let sortedPosts = posts;
+    if (sortBy === 'date') {
+      sortedPosts = posts.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
+        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+    } else if (sortBy === 'likes') {
+      sortedPosts = posts.sort((a, b) => b.likes_count - a.likes_count);
+    } else if (sortBy === 'comments') {
+      sortedPosts = posts.sort((a, b) => b.comments_count - a.comments_count);
+    }
 
-    return { data: sortedPosts };
+    // Pagination: 10 posts per page
+    const start = (page - 1) * 10;
+    const pagedPosts = sortedPosts.slice(start, start + 10);
+    return { data: pagedPosts };
   } catch (error) {
     console.error('Error fetching posts:', error);
     throw error;

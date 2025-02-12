@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Users, LayoutDashboard, Menu, X, LogOut, Bot, ChevronDown } from 'lucide-react';
+import { Brain, Users, LayoutDashboard, Menu, X, LogOut, Bot, ChevronDown, BookOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
@@ -25,6 +25,14 @@ const Navbar = () => {
           >
             <Bot className="h-4 w-4" />
             <span>AI Companion</span>
+          </Link>
+          <Link 
+            to="/tutorials" 
+            className="flex items-center space-x-1 text-gray-600 hover:text-indigo-600"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Tutorials</span>
           </Link>
           <Link 
             to="/forum" 
@@ -98,7 +106,7 @@ const Navbar = () => {
         <div className="flex justify-between items-center h-16">
           <Link to="/" className="flex items-center space-x-2">
             <Brain className="h-8 w-8 text-indigo-600" />
-            <span className="text-xl font-bold text-gray-800">AI Adapt</span>
+            <span className="text-xl font-bold text-gray-800">Thrive</span>
           </Link>
           
           {/* Desktop Navigation */}

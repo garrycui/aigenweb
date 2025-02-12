@@ -26,6 +26,8 @@ const Forum = () => {
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [sortBy, setSortBy] = useState<'date' | 'likes' | 'comments'>('date');
+  const [page, setPage] = useState(1);
 
   const formatTimeAgo = (timestamp: any) => {
     if (!timestamp) return '';
@@ -60,7 +62,7 @@ const Forum = () => {
     const loadPosts = async () => {
       try {
         setIsLoading(true);
-        const { data } = await fetchPosts();
+        const { data } = await fetchPosts(sortBy, page);
         const formattedData = data.map((post: any) => ({
           id: post.id,
           title: post.title || '',
@@ -85,7 +87,7 @@ const Forum = () => {
     };
 
     loadPosts();
-  }, []);
+  }, [sortBy, page]);
 
   const handleLike = async (postId: string) => {
     if (!user) {
@@ -152,10 +154,11 @@ const Forum = () => {
 
   return (
     <div className="max-w-4xl mx-auto px-4">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
+      {/* Header with title and share button */}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Community Forum</h1>
-          <p className="text-gray-600">Top posts from this week</p>
+          <p className="text-gray-600">Discover Every Empowering Insight</p>
         </div>
         <Link
           to="/forum/new"
@@ -164,76 +167,118 @@ const Forum = () => {
           Share Your Story
         </Link>
       </div>
+      
+      {/* AIChat component with adjusted spacing */}
+      <div className="mt-[-20px]">
+        <AIChat />
+      </div>
+      
+      {/* Updated sort dropdown container with shorter styling and blended appearance */}
+      <div className="p-2 my-2 flex justify-end border-t border-gray-300">
+        <select
+          value={sortBy}
+          onChange={(e) => {
+            setSortBy(e.target.value as 'date' | 'likes' | 'comments');
+            setPage(1);
+          }}
+          className="border rounded p-2 text-sm"
+        >
+          <option value="date">Date</option>
+          <option value="likes">Likes</option>
+          <option value="comments">Comments</option>
+        </select>
+      </div>
 
-      <AIChat />
+      {/* Posts area moved up slightly */}
+      <div className="mt-[-10px]">
+        {posts.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-lg shadow-md">
+            <p className="text-gray-600">No posts yet. Be the first to share your story!</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-6">
+              {posts.map(post => (
+                <div key={post.id} className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className="p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                      <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full w-fit">
+                        {post.category}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {formatTimeAgo(post.createdAt)}
+                      </span>
+                    </div>
+                    
+                    <Link to={`/forum/${post.id}`}>
+                      <h2 className="text-xl font-semibold text-gray-900 mb-2 hover:text-indigo-600 transition-colors">
+                        {post.title}
+                      </h2>
+                    </Link>
+                    
+                    <p className="text-gray-600 mb-4">
+                      {post.content.length > 150 ? `${post.content.slice(0, 150)}...` : post.content}
+                    </p>
 
-      {posts.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow-md">
-          <p className="text-gray-600">No posts yet. Be the first to share your story!</p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {posts.map(post => (
-            <div key={post.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="p-4 sm:p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-                  <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full w-fit">
-                    {post.category}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    {formatTimeAgo(post.createdAt)}
-                  </span>
-                </div>
-                
-                <Link to={`/forum/${post.id}`}>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-2 hover:text-indigo-600 transition-colors">
-                    {post.title}
-                  </h2>
-                </Link>
-                
-                <p className="text-gray-600 mb-4">
-                  {post.content.length > 150 ? `${post.content.slice(0, 150)}...` : post.content}
-                </p>
-
-                {post.image_url && (
-                  <img
-                    src={post.image_url}
-                    alt="Post illustration"
-                    className="w-full h-48 object-cover rounded-lg mb-4"
-                  />
-                )}
-                
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t">
-                  <div className="flex items-center space-x-4">
-                    <button
-                      onClick={() => handleLike(post.id)}
-                      className={`flex items-center space-x-1 ${
-                        post.is_liked
-                          ? 'text-indigo-600'
-                          : 'text-gray-500 hover:text-indigo-600'
-                      }`}
-                    >
-                      {post.is_liked ? (
-                        <ThumbsUp className="h-5 w-5 fill-current" />
-                      ) : (
-                        <ThumbsUp className="h-5 w-5" />
-                      )}
-                      <span>{post.likes_count || 0}</span>
-                    </button>
-                    <div className="flex items-center space-x-1 text-gray-500">
-                      <MessageSquare className="h-5 w-5" />
-                      <span>{post.comments_count || 0}</span>
+                    {post.image_url && (
+                      <img
+                        src={post.image_url}
+                        alt="Post illustration"
+                        className="w-full h-48 object-cover rounded-lg mb-4"
+                      />
+                    )}
+                    
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t">
+                      <div className="flex items-center space-x-4">
+                        <button
+                          onClick={() => handleLike(post.id)}
+                          className={`flex items-center space-x-1 ${
+                            post.is_liked
+                              ? 'text-indigo-600'
+                              : 'text-gray-500 hover:text-indigo-600'
+                          }`}
+                        >
+                          {post.is_liked ? (
+                            <ThumbsUp className="h-5 w-5 fill-current" />
+                          ) : (
+                            <ThumbsUp className="h-5 w-5" />
+                          )}
+                          <span>{post.likes_count || 0}</span>
+                        </button>
+                        <div className="flex items-center space-x-1 text-gray-500">
+                          <MessageSquare className="h-5 w-5" />
+                          <span>{post.comments_count || 0}</span>
+                        </div>
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Posted by <span className="font-medium">{post.user_name}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-sm text-gray-500">
-                    Posted by <span className="font-medium">{post.user_name}</span>
-                  </div>
                 </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+            {/* Pagination controls */}
+            <div className="flex justify-center items-center mt-6 space-x-4">
+              <button
+                onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                disabled={page === 1}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <span>Page {page}</span>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={posts.length < 10} // Disable Next if fewer than 10 posts are returned
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };

@@ -32,8 +32,8 @@ const Home = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="pt-20 pb-12 md:pt-32 text-center">
             <h1 className="text-4xl font-bold text-white sm:text-5xl md:text-6xl">
-              Navigate the Future with
-              <span className="block text-indigo-400">AI Confidence</span>
+              Empower Your Mind,
+              <span className="block text-indigo-400">Lead in the AI Era</span>
             </h1>
             <p className="mt-6 max-w-2xl mx-auto text-xl text-gray-300">
               Discover your unique AI adaptation style and get personalized guidance to thrive in the age of artificial intelligence.

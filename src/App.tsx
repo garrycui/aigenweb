@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
@@ -9,16 +9,23 @@ import PostDetail from './pages/PostDetail';
 import NewPost from './pages/NewPost';
 import Dashboard from './pages/Dashboard';
 import Assistant from './pages/Assistant';
+import Tutorials from './pages/Tutorials';
+import TutorialDetail from './pages/TutorialDetail';
 import { PostProvider } from './context/PostContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import TrialBanner from './components/TrialBanner';
+import SubscriptionModal from './components/SubscriptionModal';
 
 function App() {
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+
   return (
     <AuthProvider>
       <PostProvider>
         <Router>
           <div className="min-h-screen bg-gray-50">
+            <TrialBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
             <Navbar />
             <main className="container mx-auto px-4 py-8">
               <Routes>
@@ -72,9 +79,30 @@ function App() {
                     </ProtectedRoute>
                   } 
                 />
+                <Route 
+                  path="/tutorials" 
+                  element={
+                    <ProtectedRoute>
+                      <Tutorials />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/tutorials/:id" 
+                  element={
+                    <ProtectedRoute>
+                      <TutorialDetail />
+                    </ProtectedRoute>
+                  } 
+                />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </main>
+            
+            <SubscriptionModal
+              isOpen={isSubscriptionModalOpen}
+              onClose={() => setIsSubscriptionModalOpen(false)}
+            />
           </div>
         </Router>
       </PostProvider>

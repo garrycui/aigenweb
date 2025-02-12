@@ -8,6 +8,7 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
+import { getSubscriptionStatus, startTrial } from '../lib/stripe';
 
 type AuthUser = {
   id: string;
@@ -39,14 +40,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setIsLoading(true);
       if (firebaseUser) {
+        // Get subscription status
+        const subscription = await getSubscriptionStatus(firebaseUser.uid);
+        
         setUser({
           id: firebaseUser.uid,
           email: firebaseUser.email!,
           name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-          trialEndsAt: null,
+          trialEndsAt: subscription.trialEndsAt,
           subscription: {
-            status: 'active',
-            plan: null
+            status: subscription.isTrialing ? 'trialing' : 
+                    subscription.isActive ? 'active' : 'expired',
+            plan: subscription.plan
           }
         });
       } else {
@@ -76,6 +81,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await updateProfile(firebaseUser, {
         displayName: name
       });
+
+      // Start trial period
+      await startTrial(firebaseUser.uid);
 
       return {};
     } catch (error: any) {

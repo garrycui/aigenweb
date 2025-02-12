@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import axios from 'axios';
 import { config } from 'dotenv';
-import { Messages } from 'openai/resources/beta/threads/messages.mjs';
 
 config();
 
@@ -39,7 +38,7 @@ export const searchWeb = async (query: string, limit: number = 3): Promise<Searc
     
     // First, use ChatGPT to search for relevant content
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
