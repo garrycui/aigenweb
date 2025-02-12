@@ -140,30 +140,24 @@ export const generateTutorial = async (userId: string, query: string) => {
   }
 };
 
-export const getRecommendedTutorials = async (userId: string, lim = 5) => {
+export const getRecommendedTutorials = async (userId: string, lim = 3) => {
   try {
-    // Get user's assessment results
     const { data: assessment } = await getLatestAssessment(userId);
     const mbtiType = assessment?.mbti_type;
     const aiPreference = assessment?.ai_preference;
 
-    // Query tutorials matching user's profile
     const tutorialsRef = collection(db, 'tutorials');
-    let tutorialQuery = query(
-      tutorialsRef,
-      orderBy('createdAt', 'desc'),
-      limit(lim)
-    );
-
+    const constraints: any[] = [];
     if (mbtiType) {
-      tutorialQuery = query(
-        tutorialsRef,
-        where('mbtiType', '==', mbtiType),
-        orderBy('createdAt', 'desc'),
-        limit(lim)
-      );
+      constraints.push(where('mbtiType', '==', mbtiType));
     }
+    if (aiPreference) {
+      constraints.push(where('aiPreference', '==', aiPreference));
+    }
+    constraints.push(orderBy('views', 'desc'));
+    constraints.push(limit(lim));
 
+    const tutorialQuery = query(tutorialsRef, ...constraints);
     const snapshot = await getDocs(tutorialQuery);
     return snapshot.docs.map(doc => ({
       id: doc.id,
@@ -171,7 +165,7 @@ export const getRecommendedTutorials = async (userId: string, lim = 5) => {
     })) as Tutorial[];
   } catch (error) {
     console.error('Error getting recommended tutorials:', error);
-    return []; // Return empty array instead of throwing
+    return [];
   }
 };
 

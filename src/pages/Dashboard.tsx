@@ -1,20 +1,46 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpen, Target, Trophy, TrendingUp, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import AIChat from '../components/AIChat';
 import DailyContent from '../components/DailyContent';
 import ReviewModal from '../components/ReviewModal';
-import TutorialList from '../components/TutorialList';
+import TutorialCard from '../components/TutorialCard';
 import { useReviewPrompt } from '../hooks/useReviewPrompt';
+import { getRecommendedTutorials, Tutorial } from '../lib/tutorials';
+import { useAuth } from '../context/AuthContext';
 
 const Dashboard = () => {
   const { showReview, setShowReview } = useReviewPrompt();
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(showReview);
+  const navigate = useNavigate();
+  // Assuming user is retrieved from an auth context
+  const { user } = useAuth(); // or replace with the correct context hook
 
-  const handleCloseReviewModal = () => {
-    setIsReviewModalOpen(false);
-    setShowReview(false);
+  // New state to hold recommended tutorials
+  const [recommendedTutorials, setRecommendedTutorials] = useState<Tutorial[]>([]);
+  const [isRecLoading, setIsRecLoading] = useState(true);
+
+  // Handler for clicking a tutorial card
+  const handleTutorialClick = (tutorialId: string) => {
+    navigate(`/tutorials/${tutorialId}`);
   };
+
+  useEffect(() => {
+    const loadRecommended = async () => {
+      if (!user) return;
+      try {
+        setIsRecLoading(true);
+        const recTut = await getRecommendedTutorials(user.id, 3);
+        setRecommendedTutorials(recTut);
+      } catch (error) {
+        console.error('Error fetching recommended tutorials:', error);
+        setRecommendedTutorials([]);
+      } finally {
+        setIsRecLoading(false);
+      }
+    };
+    loadRecommended();
+  }, [user]);
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -85,7 +111,17 @@ const Dashboard = () => {
                 <ArrowRight className="h-4 w-4 ml-1" />
               </Link>
             </div>
-            <TutorialList />
+            {isRecLoading ? (
+              <div>Loading...</div>
+            ) : recommendedTutorials.length === 0 ? (
+              <p>No recommended tutorials available</p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {recommendedTutorials.map(t => (
+                  <TutorialCard key={t.id} tutorial={t} onClick={handleTutorialClick} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -123,7 +159,10 @@ const Dashboard = () => {
       {/* Review Modal */}
       <ReviewModal
         isOpen={isReviewModalOpen}
-        onClose={handleCloseReviewModal}
+        onClose={() => {
+          setIsReviewModalOpen(false);
+          setShowReview(false);
+        }}
         platform="web"
       />
     </div>
