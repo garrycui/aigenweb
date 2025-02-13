@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ThumbsUp, Eye, Clock, Share2, Bookmark } from 'lucide-react';
 import { doc, getDoc, updateDoc, increment, arrayUnion } from 'firebase/firestore';

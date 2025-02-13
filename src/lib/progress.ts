@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { doc, getDoc, updateDoc, increment, collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment, collection, query, where, getDocs, Timestamp, arrayUnion } from 'firebase/firestore';
 
 interface MonthlyProgress {
   month: string;

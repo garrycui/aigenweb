@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BookOpen, Target, Trophy, TrendingUp, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import AIChat from '../components/AIChat';
@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getLatestAssessment } from '../lib/api'; // <-- new import
-import GrowthModal from '../components/GrowthModal';
+import GrowthModal from '../components/GrowthModal'; // ensure file name matches exactly
 
 interface UserProgress {
   assessment: boolean;

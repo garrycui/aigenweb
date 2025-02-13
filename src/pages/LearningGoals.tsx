@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, Plus, Edit2, Trash2, CheckCircle } from 'lucide-react';
+import { Target, Plus, Trash2} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
