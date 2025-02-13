@@ -18,10 +18,14 @@ export const db = getFirestore(app);
 export const auth = getAuth(app);
 
 // Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Persistence failed: Multiple tabs open');
-  } else if (err.code === 'unimplemented') {
-    console.warn('Persistence not available in this browser');
-  }
-});
+try {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.warn('Persistence failed: Multiple tabs open');
+    } else if (err.code === 'unimplemented') {
+      console.warn('Persistence not available in this browser');
+    }
+  });
+} catch (error) {
+  console.warn('Error enabling persistence:', error);
+}

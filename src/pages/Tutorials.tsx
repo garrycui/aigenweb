@@ -142,7 +142,7 @@ const Tutorials = () => {
         ))}
       </div>
 
-      {/* Tutorials List */}
+      {/* TutorialList now marks completed tutorials with a 'Completed' badge */}
       <TutorialList
         searchQuery={searchQuery}
         category={selectedCategory === 'All' ? undefined : selectedCategory}

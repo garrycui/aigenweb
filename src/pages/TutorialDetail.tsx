@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ThumbsUp, Eye, Clock, Share2, Bookmark } from 'lucide-react';
-import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Tutorial } from '../lib/tutorials';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,8 @@ const TutorialDetail = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [showCongrats, setShowCongrats] = useState(false);
 
   useEffect(() => {
     const loadTutorial = async () => {
@@ -43,6 +45,14 @@ const TutorialDetail = () => {
             const data = userInteractionDoc.data();
             setIsLiked(data.liked || false);
             setIsBookmarked(data.bookmarked || false);
+          }
+
+          // Check if tutorial is marked as completed
+          const userDocRef = doc(db, 'users', user.id);
+          const userDoc = await getDoc(userDocRef);
+          const completed = userDoc.data()?.completedTutorials || [];
+          if (completed.includes(id)) {
+            setIsCompleted(true);
           }
         }
 
@@ -114,6 +124,22 @@ const TutorialDetail = () => {
     }
   };
 
+  const handleMarkCompleted = async () => {
+    if (!user || !tutorial) return;
+
+    try {
+      const userDocRef = doc(db, 'users', user.id);
+      await updateDoc(userDocRef, {
+        completedTutorials: arrayUnion(tutorial.id)
+      });
+      setIsCompleted(true);
+      setShowCongrats(true);
+      setTimeout(() => setShowCongrats(false), 3000);
+    } catch (error) {
+      console.error('Error marking tutorial as completed:', error);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="max-w-4xl mx-auto px-4">
@@ -142,6 +168,11 @@ const TutorialDetail = () => {
 
   return (
     <div className="max-w-4xl mx-auto px-4">
+      {showCongrats && (
+        <div className="fixed top-4 right-4 z-50 p-4 bg-green-100 text-green-800 rounded-lg shadow-lg">
+          Congratulations on completing the tutorial!
+        </div>
+      )}
       <Link 
         to="/tutorials"
         className="inline-flex items-center text-indigo-600 hover:text-indigo-800 mb-6"
@@ -175,6 +206,23 @@ const TutorialDetail = () => {
           <div className="prose max-w-none mb-6">
             <ReactMarkdown>{tutorial.content}</ReactMarkdown>
           </div>
+
+          {user && (
+            <div className="mb-6">
+              {isCompleted ? (
+                <button className="px-4 py-2 bg-green-600 text-white rounded-lg cursor-default" disabled>
+                  Completed
+                </button>
+              ) : (
+                <button
+                  onClick={handleMarkCompleted}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >
+                  Mark as Completed
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center justify-between border-t pt-4">
             <div className="flex items-center space-x-4">

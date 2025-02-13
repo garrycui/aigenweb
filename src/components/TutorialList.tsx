@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { getTutorials, Tutorial } from '../lib/tutorials';
 import { useAuth } from '../context/AuthContext';
 import TutorialCard from './TutorialCard';
+import { doc, getDoc } from 'firebase/firestore'; // add import
 
 interface TutorialListProps {
   searchQuery?: string;
@@ -28,6 +29,7 @@ const TutorialList: React.FC<TutorialListProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [completedTutorialIds, setCompletedTutorialIds] = useState<string[]>([]);
 
   useEffect(() => {
     const loadTutorials = async () => {
@@ -54,6 +56,17 @@ const TutorialList: React.FC<TutorialListProps> = ({
     };
     loadTutorials();
   }, [user, searchQuery, category, difficulty, limit, sortField, sortDirection, currentPage]);
+
+  useEffect(() => {
+    const loadCompleted = async () => {
+      if (!user) return;
+      const userRef = doc(db, 'users', user.id);
+      const userDoc = await getDoc(userRef);
+      const completed = userDoc.data()?.completedTutorials || [];
+      setCompletedTutorialIds(completed);
+    };
+    loadCompleted();
+  }, [user]);
 
   const handleTutorialClick = (tutorialId: string) => {
     navigate(`/tutorials/${tutorialId}`);
@@ -120,6 +133,7 @@ const TutorialList: React.FC<TutorialListProps> = ({
             key={tutorial.id}
             tutorial={tutorial}
             onClick={handleTutorialClick}
+            isCompleted={completedTutorialIds.includes(tutorial.id)}
           />
         ))}
       </div>

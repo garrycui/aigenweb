@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard';
 import Assistant from './pages/Assistant';
 import Tutorials from './pages/Tutorials';
 import TutorialDetail from './pages/TutorialDetail';
+import LearningGoals from './pages/LearningGoals';
 import { PostProvider } from './context/PostContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -92,6 +93,14 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <TutorialDetail />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/learning-goals" 
+                  element={
+                    <ProtectedRoute>
+                      <LearningGoals />
                     </ProtectedRoute>
                   } 
                 />

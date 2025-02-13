@@ -5,14 +5,20 @@ import { Tutorial } from '../lib/tutorials';
 interface TutorialCardProps {
   tutorial: Tutorial;
   onClick: (tutorialId: string) => void;
+  isCompleted?: boolean;
 }
 
-const TutorialCard: React.FC<TutorialCardProps> = ({ tutorial, onClick }) => {
+const TutorialCard: React.FC<TutorialCardProps> = ({ tutorial, onClick, isCompleted = false }) => {
   return (
     <div 
-      className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+      className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer relative"
       onClick={() => onClick(tutorial.id)}
     >
+      {isCompleted && (
+        <span className="absolute top-2 right-2 bg-green-600 text-white text-xs font-medium px-2 py-1 rounded">
+          Completed
+        </span>
+      )}
       <div className="p-6">
         <div className="flex items-center space-x-2 mb-4">
           <Book className="h-5 w-5 text-indigo-600" />

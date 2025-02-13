@@ -11,7 +11,8 @@ import {
   limit,
   Timestamp,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  arrayUnion
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -266,6 +267,11 @@ export const createPost = async (userId: string, userName: string, title: string
       comments_count: 0,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
+    });
+
+    // Update user document to mark the post as published
+    await updateDoc(doc(db, 'users', userId), {
+      publishedPosts: arrayUnion(postRef.id)
     });
 
     return { data: { id: postRef.id } };
