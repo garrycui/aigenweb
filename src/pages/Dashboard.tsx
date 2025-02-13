@@ -122,7 +122,7 @@ const Dashboard = () => {
         setBadges(userBadges);
 
         // Load recommended tutorials
-        const recTutorials = await getRecommendedTutorials(user.id, 3);
+        const recTutorials = await getRecommendedTutorials(user.id, completedTutorialIds, 3);
         setRecommendedTutorials(recTutorials);
 
       } catch (error) {
@@ -279,7 +279,7 @@ const Dashboard = () => {
               <p className="text-center text-gray-600">No recommended tutorials available</p>
             ) : (
               <div className="flex flex-col gap-4">
-                {recommendedTutorials.map(tutorial => (
+                {recommendedTutorials.map((tutorial) => (
                   <TutorialCard
                     key={tutorial.id}
                     tutorial={tutorial}

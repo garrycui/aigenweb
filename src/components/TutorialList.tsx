@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 // Replace getRecommendedTutorials with getTutorials
 import { getTutorials, Tutorial } from '../lib/tutorials';
 import { useAuth } from '../context/AuthContext';
 import TutorialCard from './TutorialCard';
-import { doc, getDoc } from 'firebase/firestore'; // add import
+import { db } from '../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface TutorialListProps {
   searchQuery?: string;

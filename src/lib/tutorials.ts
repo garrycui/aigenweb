@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, limit as firebaseLimit, serverTimestamp, or, and } from 'firebase/firestore';
 import OpenAI from 'openai';
 import { getLatestAssessment } from './api';
 
@@ -10,16 +10,15 @@ const openai = new OpenAI({
 
 export interface Tutorial {
   id: string;
+  userId: string;
   title: string;
   content: string;
   category: string;
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-  tags: string[];
-  estimatedMinutes: number;
-  createdAt: Date;
+  difficulty: string;
   likes: number;
   views: number;
-  images?: { url: string; caption: string; }[];
+  estimatedMinutes: number;
+  createdAt: any;
 }
 
 export const TUTORIAL_CATEGORIES = [
@@ -101,7 +100,7 @@ export const generateTutorial = async (userId: string, query: string) => {
       messages: [
         {
           role: 'system',
-          content: `Categorize this tutorial into one of these categories: ${TUTORIAL_CATEGORIES.join(', ')}`
+          content: `Return ONLY one of the following categories exactly (without any additional text): ${TUTORIAL_CATEGORIES.join(', ')}.`
         },
         {
           role: 'user',
@@ -109,8 +108,12 @@ export const generateTutorial = async (userId: string, query: string) => {
         }
       ]
     });
-
-    const category = categoryCompletion.choices[0].message?.content || TUTORIAL_CATEGORIES[0];
+    let categoryResponse = (categoryCompletion.choices?.[0]?.message?.content ?? '').trim();
+    if (!TUTORIAL_CATEGORIES.includes(categoryResponse)) {
+      // Attempt to find one of the predefined categories in the response
+      categoryResponse = TUTORIAL_CATEGORIES.find(cat => categoryResponse.includes(cat)) || TUTORIAL_CATEGORIES[0];
+    }
+    const category = categoryResponse;
 
     // Save tutorial to Firestore
     const tutorialRef = await addDoc(collection(db, 'tutorials'), {
@@ -120,12 +123,12 @@ export const generateTutorial = async (userId: string, query: string) => {
       difficulty: 'intermediate',
       tags: [category, query, mbtiType || 'General'],
       estimatedMinutes: Math.ceil(body.split(' ').length / 200),
-      createdAt: serverTimestamp(),
+      createdAt: new Date(), // <-- changed from serverTimestamp() to new Date()
       likes: 0,
       views: 0,
       userId,
       mbtiType,
-      aiPreference
+      aiPreference,
     });
 
     return {
@@ -140,29 +143,47 @@ export const generateTutorial = async (userId: string, query: string) => {
   }
 };
 
-export const getRecommendedTutorials = async (userId: string, lim = 3) => {
+export const getRecommendedTutorials = async (userId: string, completedTutorialIds: string[], limit = 3) => {
   try {
-    const { data: assessment } = await getLatestAssessment(userId);
-    const mbtiType = assessment?.mbti_type;
-    const aiPreference = assessment?.ai_preference;
-
     const tutorialsRef = collection(db, 'tutorials');
-    const constraints: any[] = [];
-    if (mbtiType) {
-      constraints.push(where('mbtiType', '==', mbtiType));
-    }
-    if (aiPreference) {
-      constraints.push(where('aiPreference', '==', aiPreference));
-    }
-    constraints.push(orderBy('views', 'desc'));
-    constraints.push(limit(lim));
+    const assessment = await getLatestAssessment(userId);
+    const preferredMbti = assessment.data?.mbti_type;
 
-    const tutorialQuery = query(tutorialsRef, ...constraints);
-    const snapshot = await getDocs(tutorialQuery);
-    return snapshot.docs.map(doc => ({
+    let combinedQuery;
+    if (preferredMbti) {
+      combinedQuery = query(
+        tutorialsRef,
+        or(
+          where('userId', '==', userId),
+          and(
+            where('userId', '!=', userId),
+            where('mbtiType', '==', preferredMbti)
+          )
+        ),
+        orderBy('likes', 'desc'),
+        orderBy('createdAt', 'desc')
+      );
+    } else {
+      // Fallback if no preferredMbti: only user-created tutorials
+      combinedQuery = query(
+        tutorialsRef,
+        where('userId', '==', userId),
+        orderBy('likes', 'desc'),
+        orderBy('createdAt', 'desc')
+      );
+    }
+
+    const snapshot = await getDocs(combinedQuery);
+    let tutorials: Tutorial[] = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     })) as Tutorial[];
+    tutorials = tutorials.filter(t => !completedTutorialIds.includes(t.id));
+    tutorials.sort((a, b) => {
+      if (b.likes !== a.likes) return b.likes - a.likes;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    return tutorials.slice(0, limit);
   } catch (error) {
     console.error('Error getting recommended tutorials:', error);
     return [];

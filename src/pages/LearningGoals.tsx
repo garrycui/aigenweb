@@ -4,6 +4,8 @@ import { Target, Plus, Trash2} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import OpenAI from 'openai';
+import { generateTutorial } from '../lib/tutorials';
 
 interface LearningGoal {
   id: string;
@@ -41,6 +43,12 @@ const LearningGoals = () => {
     }
   };
 
+  // Initialize OpenAI instance
+  const localOpenAI = new OpenAI({
+    apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+    dangerouslyAllowBrowser: true
+  });
+
   const handleAddGoal = async () => {
     if (!user) return;
     if (goals.length >= 3) {
@@ -67,9 +75,29 @@ const LearningGoals = () => {
       setNewGoal({ title: '', description: '' });
       setIsAddingGoal(false);
       setError(null);
-    } catch (error) {
-      console.error('Error adding goal:', error);
-      setError('Failed to add learning goal');
+
+      // Prepare prompt from user goal input
+      const prompt = `Based on the user's learning goal: "${newGoal.title}" - "${newGoal.description}", suggest a list of highly engaging and necessary tutorial topics to help achieve this goal. Return each topic on a new line.`;
+      const response = await localOpenAI.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'You are an expert in suggesting tutorial topics that are really needed and highly eye attractive to users.' },
+          { role: 'user', content: prompt }
+        ]
+      });
+      const topicsText = response.choices[0].message?.content || '';
+      const topics = topicsText.split('\n').map(t => t.trim()).filter(t => t);
+
+      // Limit to 3 tutorials per goal
+      const selectedTopics = topics.slice(0, 3);
+      
+      // Generate a tutorial for each topic
+      for (const topic of selectedTopics) {
+        await generateTutorial(user.id, topic);
+      }
+    } catch (err) {
+      console.error('Error generating tutorials for goal:', err);
+      setError('Failed to generate tutorials from your goal.');
     }
   };
 
