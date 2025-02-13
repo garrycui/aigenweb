@@ -8,6 +8,8 @@ import {
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { getSubscriptionStatus, startTrial } from '../lib/stripe';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 type AuthUser = {
   id: string;
@@ -83,6 +85,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Start trial period
       await startTrial(firebaseUser.uid);
+
+      // Create/update Firestore document for the user
+      await setDoc(
+        doc(db, 'users', firebaseUser.uid),
+        { createdAt: serverTimestamp() },
+        { merge: true }
+      );
 
       return {};
     } catch (error: any) {

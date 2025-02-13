@@ -1,5 +1,6 @@
 import { db } from './firebase';
 import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { getLatestAssessment } from './api'; // <-- new import
 
 export interface Badge {
   id: string;
@@ -69,6 +70,11 @@ export const BADGES = {
   }
 };
 
+// New helper to retrieve badge by its id
+const getBadgeById = (badgeId: string) => {
+  return Object.values(BADGES).find(badge => badge.id === badgeId);
+};
+
 export const awardBadge = async (userId: string, badgeId: string) => {
   try {
     const userRef = doc(db, 'users', userId);
@@ -83,7 +89,7 @@ export const awardBadge = async (userId: string, badgeId: string) => {
       badges: arrayUnion(badgeId)
     });
     
-    return BADGES[badgeId as keyof typeof BADGES];
+    return getBadgeById(badgeId);
   } catch (error) {
     console.error('Error awarding badge:', error);
     throw error;
@@ -98,7 +104,7 @@ export const getUserBadges = async (userId: string) => {
     if (!userDoc.exists()) return [];
     
     const badgeIds = userDoc.data().badges || [];
-    return badgeIds.map(id => BADGES[id as keyof typeof BADGES]);
+    return badgeIds.map((id: string) => getBadgeById(id)).filter(Boolean);
   } catch (error) {
     console.error('Error getting user badges:', error);
     throw error;
@@ -109,26 +115,35 @@ export const checkAndAwardBadges = async (userId: string) => {
   try {
     const userRef = doc(db, 'users', userId);
     const userDoc = await getDoc(userRef);
-    
     if (!userDoc.exists()) return;
     
     const userData = userDoc.data();
-    const newBadges = [];
+    // New: fetch learning goals from subcollection
+    const goalsDoc = await getDoc(doc(db, 'users', userId, 'learningGoals', 'goals'));
+    const goals = goalsDoc.exists() ? (goalsDoc.data().goals || []) : [];
     
-    // Check assessment completion
-    if (userData.hasCompletedAssessment) {
+    // New: fetch assessment if not already set in userData
+    let hasAssessment = userData.hasCompletedAssessment;
+    if (!hasAssessment) {
+      const assessmentResult = await getLatestAssessment(userId);
+      hasAssessment = !!assessmentResult.data;
+    }
+    
+    const newBadges: string[] = [];
+    
+    // Updated condition for Self-Aware badge using progress.assessment logic
+    if (hasAssessment) {
       newBadges.push(BADGES.ASSESSMENT_COMPLETE.id);
     }
     
-    // Check learning goals
-    if (userData.learningGoals?.length > 0) {
+    // Existing conditions
+    if (goals.length > 0) {
       newBadges.push(BADGES.FIRST_GOAL.id);
     }
-    if (userData.learningGoals?.every(goal => goal.status === 'completed')) {
+    if (goals.length > 0 && goals.every((goal: any) => goal.status === 'completed')) {
       newBadges.push(BADGES.GOAL_MASTER.id);
     }
     
-    // Check tutorials
     if (userData.completedTutorials?.length > 0) {
       newBadges.push(BADGES.TUTORIAL_COMPLETE.id);
     }
@@ -136,12 +151,50 @@ export const checkAndAwardBadges = async (userId: string) => {
       newBadges.push(BADGES.TUTORIAL_MASTER.id);
     }
     
+    // New conditions for additional badges
+
+    // Award FIRST_POST if the user has published posts
+    if (userData.publishedPosts?.length > 0) {
+      newBadges.push(BADGES.FIRST_POST.id);
+    }
+
+    // Remove the old likesReceived check
+    // if (userData.likesReceived && userData.likesReceived >= 50) {
+    //   newBadges.push(BADGES.ENGAGEMENT_STAR.id);
+    // }
+
+    // Replace with:
+    if (userData.publishedPosts?.length > 0) {
+      let totalLikes = 0;
+      for (const postId of userData.publishedPosts as string[]) {
+        const postRef = doc(db, 'posts', postId);
+        const postDoc = await getDoc(postRef);
+        const postData = postDoc.exists() ? postDoc.data() : null;
+        if (postData && typeof postData.likes_count === 'number') {
+          totalLikes += postData.likes_count;
+        }
+      }
+      if (totalLikes >= 50) {
+        newBadges.push(BADGES.ENGAGEMENT_STAR.id);
+      }
+    }
+
+    // Award MILESTONE_30_DAYS if the account is older than or equal to 30 days
+    if (userData.createdAt) {
+      const createdAt = new Date(userData.createdAt);
+      const now = new Date();
+      const diffDays = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (diffDays >= 30) {
+        newBadges.push(BADGES.MILESTONE_30_DAYS.id);
+      }
+    }
+    
     // Award new badges
     for (const badgeId of newBadges) {
       await awardBadge(userId, badgeId);
     }
     
-    return newBadges.map(id => BADGES[id as keyof typeof BADGES]);
+    return newBadges.map((id: string) => getBadgeById(id)).filter(Boolean);
   } catch (error) {
     console.error('Error checking badges:', error);
     throw error;

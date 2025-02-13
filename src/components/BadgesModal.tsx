@@ -1,6 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import { Badge } from '../lib/badges';
+import { Badge, BADGES } from '../lib/badges'; // <-- import BADGES
 
 interface BadgesModalProps {
   isOpen: boolean;
@@ -11,6 +11,12 @@ interface BadgesModalProps {
 const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) => {
   if (!isOpen) return null;
 
+  const earnedBadgeIds = new Set(badges.map(b => b.id));
+  const allBadges = Object.values(BADGES).map(badge => ({
+    ...badge,
+    earned: earnedBadgeIds.has(badge.id)
+  }));
+
   const categories = {
     achievement: 'Achievement Badges',
     learning: 'Learning Badges',
@@ -18,13 +24,14 @@ const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) =>
     milestone: 'Milestone Badges'
   };
 
-  const groupedBadges = badges.reduce((acc, badge) => {
+  // Group all badges by category
+  const groupedBadges = allBadges.reduce((acc, badge) => {
     if (!acc[badge.category]) {
       acc[badge.category] = [];
     }
     acc[badge.category].push(badge);
     return acc;
-  }, {} as Record<string, Badge[]>);
+  }, {} as Record<string, Array<typeof allBadges[0]>>);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -52,7 +59,9 @@ const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) =>
                     {groupedBadges[category]?.map((badge) => (
                       <div
                         key={badge.id}
-                        className="p-4 border border-gray-200 rounded-lg hover:border-indigo-500 transition-colors"
+                        className={`p-4 border rounded-lg transition-colors hover:border-indigo-500 ${
+                          badge.earned ? '' : 'border-gray-300 opacity-50 grayscale'
+                        }`}
                       >
                         <div className="flex items-center space-x-3">
                           <span className="text-2xl">{badge.icon}</span>
@@ -65,7 +74,7 @@ const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) =>
                     ))}
                     {(!groupedBadges[category] || groupedBadges[category].length === 0) && (
                       <div className="col-span-full text-center py-4 bg-gray-50 rounded-lg">
-                        <p className="text-gray-500">No badges earned in this category yet</p>
+                        <p className="text-gray-500">No badges available in this category</p>
                       </div>
                     )}
                   </div>

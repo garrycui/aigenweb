@@ -9,7 +9,7 @@ import ProgressModal from '../components/ProgressModal';
 import BadgesModal from '../components/BadgesModal';
 import { useReviewPrompt } from '../hooks/useReviewPrompt';
 import { getRecommendedTutorials, Tutorial } from '../lib/tutorials';
-import { getUserBadges, Badge } from '../lib/badges';
+import { getUserBadges, checkAndAwardBadges, Badge } from '../lib/badges';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -61,6 +61,18 @@ const Dashboard = () => {
   const [latestRating, setLatestRating] = useState<number>(0);
   const [psychTrend, setPsychTrend] = useState<number>(0);
 
+  // New function to refresh badges on demand
+  const refreshBadges = async () => {
+    if (!user) return;
+    try {
+      await checkAndAwardBadges(user.id);
+      const userBadges = await getUserBadges(user.id);
+      setBadges(userBadges);
+    } catch (error) {
+      console.error('Error refreshing badges:', error);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
 
@@ -104,9 +116,12 @@ const Dashboard = () => {
           }
         });
 
-        // Load badges and recommended tutorials
+        // Award badges if criteria met and then fetch updated badges
+        await checkAndAwardBadges(user.id);
         const userBadges = await getUserBadges(user.id);
         setBadges(userBadges);
+
+        // Load recommended tutorials
         const recTutorials = await getRecommendedTutorials(user.id, 3);
         setRecommendedTutorials(recTutorials);
 
@@ -196,7 +211,7 @@ const Dashboard = () => {
         </button>
 
         <button
-          onClick={() => setIsBadgesModalOpen(true)}
+          onClick={async () => { await refreshBadges(); setIsBadgesModalOpen(true); }}
           className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow"
         >
           <div className="flex items-center justify-between mb-4">
