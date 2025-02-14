@@ -114,3 +114,35 @@ export const generateChatResponse = async (
     throw error;
   }
 };
+
+export const extractKeyword = async (message: string): Promise<string> => {
+  console.log("Extracting keyword from:", message);
+  if (!message || typeof message !== "string") return "";
+
+  const prompt = `
+    Extract the most relevant single keyword from the following search phrase.
+    Do not return multiple words, only the most important keyword related to the search.
+    If no relevant keyword exists, return an empty string.
+
+    Search Phrase: "${message}"
+    Keyword:
+  `;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "You are a helpful assistant." },
+        { role: "user", content: prompt }
+      ],
+      max_tokens: 10
+    });
+
+    const keyword = response.choices[0].message?.content?.trim() || "";
+    console.log("Extracted keyword:", keyword);
+    return keyword;
+  } catch (error) {
+    console.error("Error extracting keyword:", error);
+    return "";
+  }
+};

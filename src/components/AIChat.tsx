@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { processChatMessage } from '../lib/chat';
+import TutorialCard from './TutorialCard'; // Import the TutorialCard component
 
 const AIChat = () => {
   const { user } = useAuth();
@@ -11,6 +12,7 @@ const AIChat = () => {
     role: 'user' | 'assistant';
     sentiment?: 'positive' | 'negative' | 'neutral';
     timestamp?: string;
+    recommendations?: { id: string; title: string; content: string }[];
   }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -41,17 +43,25 @@ const AIChat = () => {
 
     try {
       const result = await processChatMessage(user.id, message);
-      const response = Array.isArray(result) ? result[0].response : result.response;
-      const sentiment = Array.isArray(result) ? result[0].sentiment : result.sentiment;
-      const assistantTimestamp = new Date().toISOString();
+      const responses = Array.isArray(result) ? result : [result];
+      
+      const newMessages = responses.map((res, idx) => ({
+        content: res.response.replace(/\n/g, '<br/>'),
+        role: 'assistant' as 'assistant',
+        sentiment: res.sentiment,
+        timestamp: new Date().toISOString(),
+        recommendations: res.recommendations || []
+      }));
 
-      const formattedResponse = response ? response.replace(/\n/g, '<br/>') : 'I apologize, but I encountered an error. Please try again.';
-
-      setMessages(prev => [
-        ...prev.slice(0, -1),
-        { content: message, role: 'user', sentiment, timestamp },
-        { content: formattedResponse, role: 'assistant', sentiment, timestamp: assistantTimestamp }
-      ]);
+      setMessages(prev => {
+        const updatedMessages = [...prev];
+        if (updatedMessages.length > 0) {
+          updatedMessages[updatedMessages.length - 1] = { content: message, role: 'user', timestamp };
+        } else {
+          updatedMessages.push({ content: message, role: 'user', timestamp });
+        }
+        return [...updatedMessages, ...newMessages];
+      });
     } catch (error) {
       console.error('Error in chat:', error);
       setMessages(prev => [
@@ -92,6 +102,17 @@ const AIChat = () => {
             <span className="text-xs text-gray-500 mt-1">
               {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
             </span>
+            {message.recommendations && message.recommendations.length > 0 && (
+              <div className="mt-4 space-y-4">
+                {message.recommendations.map(rec => (
+                  <TutorialCard
+                    key={rec.id}
+                    tutorial={rec}
+                    onClick={() => window.location.href = `/${rec.id}`}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ))}
 
