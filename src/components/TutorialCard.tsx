@@ -1,5 +1,5 @@
 import React from 'react';
-import { Book, Clock, ThumbsUp, Eye } from 'lucide-react';
+import { Book, Clock, ThumbsUp, Eye, CheckCircle } from 'lucide-react';
 import { Tutorial } from '../lib/tutorials';
 
 interface TutorialCardProps {
@@ -11,25 +11,28 @@ interface TutorialCardProps {
 const TutorialCard: React.FC<TutorialCardProps> = ({ tutorial, onClick, isCompleted = false }) => {
   return (
     <div 
-      className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer relative"
+      className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-shadow cursor-pointer relative border border-gray-200 overflow-hidden"
       onClick={() => onClick(tutorial.id)}
     >
       {isCompleted && (
-        <span className="absolute top-2 right-2 bg-green-600 text-white text-xs font-medium px-2 py-1 rounded">
-          Completed
+        <span className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center">
+          <CheckCircle className="h-4 w-4 mr-1" /> Completed
         </span>
       )}
+      {tutorial.introImageUrl && (
+        <img src={tutorial.introImageUrl} alt="Intro" className="w-full h-44 object-cover rounded-t-2xl" />
+      )}
       <div className="p-6">
-        <div className="flex items-center space-x-2 mb-4">
+        <div className="flex items-center space-x-2 mb-3">
           <Book className="h-5 w-5 text-indigo-600" />
-          <span className="text-sm font-medium text-indigo-600">{tutorial.category}</span>
+          <span className="text-sm font-medium text-indigo-600 uppercase tracking-wide">{tutorial.category}</span>
         </div>
 
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+        <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2">
           {tutorial.title}
         </h3>
 
-        <p className="text-gray-600 mb-4 line-clamp-2">
+        <p className="text-gray-700 text-sm mb-4 line-clamp-3">
           {tutorial.content.split('\n')[0]}
         </p>
 
@@ -48,7 +51,7 @@ const TutorialCard: React.FC<TutorialCardProps> = ({ tutorial, onClick, isComple
               <span>{tutorial.views}</span>
             </div>
           </div>
-          <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium">
+          <span className="px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-xs font-medium">
             {tutorial.difficulty}
           </span>
         </div>

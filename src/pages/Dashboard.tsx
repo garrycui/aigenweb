@@ -399,6 +399,7 @@ const Dashboard = () => {
       <GrowthModal
         isOpen={isGrowthModalOpen}
         onClose={() => setIsGrowthModalOpen(false)}
+        onUpdate={fetchPsychDataForDashboard} // Pass the function to update data
       />
     </div>
   );

@@ -20,7 +20,11 @@ const DailyContent = () => {
         setIsLoading(true);
         setError(null);
         const dailyContent = await getDailyContent(user.id);
-        setContent(dailyContent);
+        if (dailyContent && 'content' in dailyContent && 'type' in dailyContent) {
+          setContent(dailyContent as { content: string; type: 'quote' | 'joke' });
+        } else {
+          throw new Error('Invalid daily content format');
+        }
       } catch (error) {
         console.error('Error loading daily content:', error);
         setError('Failed to load daily content. Please try again later.');

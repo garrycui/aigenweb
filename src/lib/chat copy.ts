@@ -1,9 +1,6 @@
 import vader from 'vader-sentiment';
 import Fuse from 'fuse.js';
-import { 
-  collection, doc, getDoc, setDoc, updateDoc, arrayUnion, 
-  getDocs, serverTimestamp 
-} from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, updateDoc, arrayUnion, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { getLatestAssessment } from './api';
 import { generateChatResponse } from './openai';
@@ -17,13 +14,10 @@ interface ChatMessage {
 
 let cachedPosts: { id: string; title: string; content: string }[] | null = null;
 let cachedTutorials: { id: string; title: string; content: string }[] | null = null;
-let lastCacheUpdate: number | null = null;
 let fuse: Fuse<{ id: string; title: string; content: string }> | null = null;
 
-const CACHE_EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 hours
-
 /**
- * Initialize chat history for a user in Firestore.
+ * Initialize a chat document for a user if it doesn't exist.
  */
 const initializeChatDoc = async (userId: string) => {
   const chatRef = doc(db, 'chatHistory', userId);
@@ -41,18 +35,17 @@ const initializeChatDoc = async (userId: string) => {
 };
 
 /**
- * Analyze sentiment of a message using vader-sentiment.
+ * Analyze the sentiment of a message using vader-sentiment.
  */
 const analyzeSentiment = (message: string): 'positive' | 'negative' | 'neutral' => {
-  if (!message) return 'neutral';
   const intensity = vader.SentimentIntensityAnalyzer.polarity_scores(message);
-  if (intensity?.compound >= 0.05) return 'positive';
-  if (intensity?.compound <= -0.05) return 'negative';
+  if (intensity.compound >= 0.05) return 'positive';
+  if (intensity.compound <= -0.05) return 'negative';
   return 'neutral';
 };
 
 /**
- * Save chat messages to Firestore.
+ * Save a chat message to Firestore with sentiment analysis for user messages.
  */
 export const saveChatMessage = async (userId: string, message: string, role: 'user' | 'assistant') => {
   if (!userId || !message || !role) throw new Error('Missing required fields for chat message');
@@ -77,7 +70,7 @@ export const saveChatMessage = async (userId: string, message: string, role: 'us
 };
 
 /**
- * Retrieve chat history from Firestore.
+ * Retrieve chat history for a user.
  */
 export const getChatHistory = async (userId: string): Promise<ChatMessage[]> => {
   if (!userId) throw new Error('User ID is required');
@@ -87,39 +80,35 @@ export const getChatHistory = async (userId: string): Promise<ChatMessage[]> => 
 };
 
 /**
- * Fetch cached tutorials and posts from Firestore with Fuse.js search.
+ * Fetch combined content from both 'posts' and 'tutorials' using Fuse.js.
+ * Assumes each document has a 'title' and 'content'.
  */
 async function fetchCombinedContent(searchPhrase: string): Promise<{ id: string; title: string }[]> {
-  const now = Date.now();
-  
-  // Refresh cache every 24 hours
-  if (!cachedPosts || !cachedTutorials || !lastCacheUpdate || now - lastCacheUpdate > CACHE_EXPIRATION_TIME) {
-    console.log("Refreshing Firestore cache...");
+  // If caches are not populated, fetch from Firestore.
+  if (!cachedPosts || !cachedTutorials) {
     const postsRef = collection(db, 'posts');
-    const tutorialsRef = collection(db, 'tutorials');
-
-    const [postsSnap, tutorialsSnap] = await Promise.all([getDocs(postsRef), getDocs(tutorialsRef)]);
-    
+    const postsSnap = await getDocs(postsRef);
     cachedPosts = postsSnap.docs.map(doc => ({
       id: doc.id,
-      title: doc.data().title.toString(),
-      content: doc.data().content.toString()
+      title: (doc.data().title || '').toString(),
+      content: (doc.data().content || '').toString()
     }));
 
+    const tutorialsRef = collection(db, 'tutorials');
+    const tutorialsSnap = await getDocs(tutorialsRef);
     cachedTutorials = tutorialsSnap.docs.map(doc => ({
       id: doc.id,
-      title: doc.data().title.toString(),
-      content: doc.data().content.toString()
+      title: (doc.data().title || '').toString(),
+      content: (doc.data().content || '').toString()
     }));
 
     fuse = new Fuse([...cachedPosts, ...cachedTutorials], {
       keys: ['title', 'content'],
       threshold: 0.3
     });
-
-    lastCacheUpdate = now;
   }
 
+  // Ensure fuse is initialized.
   if (!fuse) {
     fuse = new Fuse([...cachedPosts, ...cachedTutorials], {
       keys: ['title', 'content'],
@@ -127,11 +116,13 @@ async function fetchCombinedContent(searchPhrase: string): Promise<{ id: string;
     });
   }
 
+  // Search and return top 3 matches.
   return fuse.search(searchPhrase).slice(0, 3).map(result => result.item);
 }
 
 /**
- * Determine if a message has a learning intent.
+ * Determine if the user's message indicates a learning intent.
+ * Returns "learning" if keywords like "tutorial", "guide", or "learn" are present, otherwise "other".
  */
 const determineLearningIntent = async (message: string): Promise<"learning" | "other"> => {
   const lower = message.toLowerCase();
@@ -140,76 +131,76 @@ const determineLearningIntent = async (message: string): Promise<"learning" | "o
 };
 
 /**
- * Rewrite query for a more effective search.
+ * Rewrite the user's query for a more effective Firestore search.
+ * This function removes common stop phrases to yield a concise search term.
  */
 const rewriteQueryForSearch = async (message: string): Promise<string> => {
-  if (!message || typeof message !== 'string') return ''; // Ensure message is valid
+  let query = message.toLowerCase();
+  // Remove stop phrases that do not aid the search.
   const stopPhrases = ['i need', 'please', 'show me', 'how to', 'explain'];
-  
-  let query = message.toLowerCase().trim();
-
   stopPhrases.forEach(phrase => {
     query = query.replace(phrase, '');
   });
-
   return query.trim();
 };
 
 /**
- * Process a chat message.
+ * Process the user's chat message.
+ * If learning intent is detected, fetch 3 recommended content items (tutorials/posts)
+ * and generate a recommendation response. Otherwise, proceed with normal chat.
  */
 export const processChatMessage = async (userId: string, message: string) => {
   try {
-    if (!userId || !message || typeof message !== 'string') {
-      throw new Error('Invalid input: User ID and message are required');
-    }
+    if (!userId || !message) throw new Error('User ID and message are required');
 
+    // Retrieve user context.
     const { data: assessment } = await getLatestAssessment(userId);
     const mbtiType = assessment?.mbti_type;
     const aiPreference = assessment?.ai_preference;
     const chatHistory = await getChatHistory(userId);
 
+    // Save the user's message.
     const { sentiment } = await saveChatMessage(userId, message, 'user');
 
-    // Step 1: Generate AI response and send it
-    const aiResponse = await generateChatResponse(message, userId, chatHistory, mbtiType, aiPreference);
-    if (!aiResponse || !aiResponse.response) throw new Error('Failed to generate chat response');
+    // Determine if the message has a learning intent.
+    const intent = await determineLearningIntent(message);
+    if (intent === 'learning') {
+      const searchPhrase = await rewriteQueryForSearch(message);
+      const contentItems = await fetchCombinedContent(searchPhrase);
+      if (contentItems.length) {
+        // Format the recommended items without links.
+        const recommendationText = contentItems
+          .map(item => `• ${item.title}`)
+          .join('\n');
+        
+        // Generate a recommendation response using GPT-4.
+        const learningResponse = await generateChatResponse(
+          recommendationText,
+          userId,
+          chatHistory,
+          mbtiType,
+          aiPreference
+        );
+        await saveChatMessage(userId, learningResponse.response, 'assistant');
+        return {
+          response: learningResponse.response,
+          sentiment,
+          userContext: { mbtiType, aiPreference },
+          recommendations: contentItems
+        };
+      }
+    }
 
-    await saveChatMessage(userId, aiResponse.response, 'assistant');
-
-    const firstResponse = {
-      response: aiResponse.response,
+    // If no learning intent, generate a normal chat response.
+    const response = await generateChatResponse(message, userId, chatHistory, mbtiType, aiPreference);
+    if (!response || !response.response) throw new Error('Failed to generate chat response');
+    await saveChatMessage(userId, response.response, 'assistant');
+    return {
+      response: response.response,
       sentiment,
       userContext: { mbtiType, aiPreference },
       recommendations: []
     };
-
-    // Check if the user has a learning intent
-    const intent = await determineLearningIntent(message);
-    if (intent === 'learning') {
-      // Step 2: Fetch recommendations (titles only) & send a second message
-      const searchPhrase = await rewriteQueryForSearch(message);
-      const contentItems = await fetchCombinedContent(searchPhrase);
-
-      if (contentItems.length) {
-        const recommendationsText = `Here are some helpful resources:\n` +
-          contentItems.map(item => `• ${item.title}`).join('\n');
-
-        await saveChatMessage(userId, recommendationsText, 'assistant');
-
-        return [firstResponse, {
-          response: recommendationsText,
-          sentiment,
-          userContext: { mbtiType, aiPreference },
-          recommendations: contentItems
-        }];
-      }
-
-      return [firstResponse];
-    }
-
-    return firstResponse;
-
   } catch (error) {
     console.error('Error processing chat message:', error);
     throw error;

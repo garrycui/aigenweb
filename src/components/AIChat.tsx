@@ -10,6 +10,7 @@ const AIChat = () => {
     content: string;
     role: 'user' | 'assistant';
     sentiment?: 'positive' | 'negative' | 'neutral';
+    timestamp?: string;
   }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -21,29 +22,41 @@ const AIChat = () => {
     }
   }, [messages]);
 
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !user || isLoading) return;
 
+    const timestamp = new Date().toISOString();
     const message = input;
     setInput('');
     setIsLoading(true);
-    
-    setMessages(prev => [...prev, { content: message, role: 'user' }]);
+
+    setMessages(prev => [...prev, { content: message, role: 'user', timestamp }]);
 
     try {
-      const { response, sentiment } = await processChatMessage(user.id, message);
-      
+      const result = await processChatMessage(user.id, message);
+      const response = Array.isArray(result) ? result[0].response : result.response;
+      const sentiment = Array.isArray(result) ? result[0].sentiment : result.sentiment;
+      const assistantTimestamp = new Date().toISOString();
+
+      const formattedResponse = response ? response.replace(/\n/g, '<br/>') : 'I apologize, but I encountered an error. Please try again.';
+
       setMessages(prev => [
         ...prev.slice(0, -1),
-        { content: message, role: 'user', sentiment },
-        { content: response, role: 'assistant' }
+        { content: message, role: 'user', sentiment, timestamp },
+        { content: formattedResponse, role: 'assistant', sentiment, timestamp: assistantTimestamp }
       ]);
     } catch (error) {
       console.error('Error in chat:', error);
       setMessages(prev => [
         ...prev,
-        { content: 'I apologize, but I encountered an error. Please try again.', role: 'assistant' }
+        { content: 'I apologize, but I encountered an error. Please try again.', role: 'assistant', timestamp: new Date().toISOString() }
       ]);
     } finally {
       setIsLoading(false);
@@ -54,7 +67,7 @@ const AIChat = () => {
     switch (sentiment) {
       case 'positive': return 'bg-green-50 border-green-200';
       case 'negative': return 'bg-red-50 border-red-200';
-      case 'neutral': return 'bg-gray-50 border-gray-200';
+      case 'neutral': return 'bg-blue-50 border-blue-200';
       default: return 'bg-white border-gray-200';
     }
   };
@@ -69,19 +82,20 @@ const AIChat = () => {
         {messages.map((message, index) => (
           <div 
             key={index} 
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}
           >
             <div
-              className={`max-w-[80%] p-4 rounded-lg border ${
-                message.role === 'user'
-                  ? getSentimentColor(message.sentiment)
-                  : 'bg-indigo-50 border-indigo-200'
-              }`}
-            >
-              <p className="text-gray-800">{message.content}</p>
-            </div>
+              className={`max-w-[80%] p-4 rounded-lg border shadow-sm ${getSentimentColor(message.sentiment)}`}
+              dangerouslySetInnerHTML={{ __html: message.content }}
+              style={{ whiteSpace: 'pre-wrap' }} // Preserve whitespace
+            />
+            <span className="text-xs text-gray-500 mt-1">
+              {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
+            </span>
           </div>
         ))}
+
+        {/* Animated Typing Indicator */}
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg p-4">

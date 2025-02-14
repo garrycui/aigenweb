@@ -2,22 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { Line } from 'react-chartjs-2';
+import 'chart.js/auto';
 
 interface GrowthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onUpdate: () => void; // New prop to call when data is updated
 }
 
 interface PsychRecord {
   id: string;
   rating: number;
+  feedback: string;
   createdAt: any;
 }
 
-const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
+const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose, onUpdate }) => {
   const { user } = useAuth();
   const [psychRecords, setPsychRecords] = useState<PsychRecord[]>([]);
   const [newRating, setNewRating] = useState<number | ''>('');
+  const [feedback, setFeedback] = useState<string>('');
   const [trend, setTrend] = useState(0);
 
   const fetchPsychData = async () => {
@@ -28,7 +33,7 @@ const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
       const snapshot = await getDocs(q);
       const records: PsychRecord[] = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
-        ...(docSnap.data() as { rating: number; createdAt: any }),
+        ...(docSnap.data() as { rating: number; feedback: string; createdAt: any }),
       }));
       setPsychRecords(records);
       if (records.length > 1) {
@@ -47,10 +52,13 @@ const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
       const collRef = collection(db, 'users', user.id, 'psychologyRecords');
       await addDoc(collRef, {
         rating: newRating,
+        feedback: feedback,
         createdAt: serverTimestamp(),
       });
       setNewRating('');
+      setFeedback('');
       fetchPsychData();
+      onUpdate(); // Call the onUpdate function to refresh data on the dashboard
     } catch (error) {
       console.error('Error saving psychology record:', error);
     }
@@ -60,13 +68,22 @@ const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
     if (isOpen) fetchPsychData();
   }, [isOpen]);
 
+  const chartData = {
+    labels: psychRecords.map(record => new Date(record.createdAt.toDate()).toLocaleDateString()),
+    datasets: [{
+      label: 'Empowerment Rating Trend',
+      data: psychRecords.map(record => record.rating),
+      fill: false,
+      borderColor: 'rgba(75,192,192,1)',
+    }],
+  };
+
   if (!isOpen) return null;
 
   return (
-    // Basic modal layout; adjust styles as needed
     <div className="fixed inset-0 flex items-center justify-center z-50">
       <div className="absolute inset-0 bg-black opacity-50" onClick={onClose}></div>
-      <div className="bg-white rounded-lg shadow-lg z-50 p-6 max-w-md w-full">
+      <div className="bg-white rounded-lg shadow-lg z-50 p-6 max-w-md w-full overflow-y-auto max-h-full">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Mind Empowerment Tracker</h2>
           <button onClick={onClose} className="text-gray-600 hover:text-gray-800">&times;</button>
@@ -81,6 +98,12 @@ const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
             onChange={(e) => setNewRating(Number(e.target.value))}
             className="border rounded px-2 py-1 mt-2 w-full"
           />
+          <textarea
+            placeholder="Share your thoughts"
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            className="border rounded px-2 py-1 mt-2 w-full"
+          />
           <button
             onClick={handleSubmit}
             className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition mt-2"
@@ -89,17 +112,11 @@ const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
         <div className="mb-4">
-          <h3 className="text-lg font-semibold">Your Psychology Trend</h3>
+          <h3 className="text-lg font-semibold">Your Psychological Trend</h3>
           {psychRecords.length === 0 ? (
             <p className="text-gray-600">No records yet.</p>
           ) : (
-            <ul className="mt-2 max-h-40 overflow-y-auto">
-              {psychRecords.map(record => (
-                <li key={record.id} className="py-1 border-b">
-                  Rating: {record.rating} - {record.createdAt?.toDate ? new Date(record.createdAt.toDate()).toLocaleDateString() : 'Pending'}
-                </li>
-              ))}
-            </ul>
+            <Line data={chartData} />
           )}
           {psychRecords.length > 1 && (
             <p className="mt-2 text-gray-700">
@@ -107,12 +124,20 @@ const GrowthModal: React.FC<GrowthModalProps> = ({ isOpen, onClose }) => {
             </p>
           )}
         </div>
-        <button
-          onClick={fetchPsychData}
-          className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition"
-        >
-          Refresh Records
-        </button>
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">Motivational Tips</h3>
+          <ul className="list-disc list-inside text-gray-700 space-y-1">
+            <li>Take regular breaks to recharge your mind.</li>
+            <li>Set small, achievable goals to maintain momentum.</li>
+            <li>Practice mindfulness and meditation to reduce stress.</li>
+            <li>Engage in activities that you enjoy and find fulfilling.</li>
+            <li>Connect with a supportive community or mentor.</li>
+          </ul>
+        </div>
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">Empowerment Messages</h3>
+          <p className="text-gray-700">"Believe in yourself and all that you are. Know that there is something inside you that is greater than any obstacle." - Christian D. Larson</p>
+        </div>
       </div>
     </div>
   );
