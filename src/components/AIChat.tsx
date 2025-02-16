@@ -45,7 +45,7 @@ const AIChat = () => {
       const result = await processChatMessage(user.id, message);
       const responses = Array.isArray(result) ? result : [result];
       
-      const newMessages = responses.map((res, idx) => ({
+      const newMessages = responses.map((res) => ({
         content: res.response.replace(/\n/g, '<br/>'),
         role: 'assistant' as 'assistant',
         sentiment: res.sentiment,

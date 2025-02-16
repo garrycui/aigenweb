@@ -11,7 +11,8 @@ import {
   limit,
   deleteDoc,
   serverTimestamp,
-  arrayUnion
+  arrayUnion,
+  setDoc
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -268,10 +269,20 @@ export const createPost = async (userId: string, userName: string, title: string
       updatedAt: serverTimestamp()
     });
 
-    // Update user document to mark the post as published
-    await updateDoc(doc(db, 'users', userId), {
-      publishedPosts: arrayUnion(postRef.id)
-    });
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+
+    if (!userDoc.exists()) {
+      // Create user document if it does not exist
+      await setDoc(userRef, {
+        publishedPosts: [postRef.id]
+      });
+    } else {
+      // Update user document to mark the post as published
+      await updateDoc(userRef, {
+        publishedPosts: arrayUnion(postRef.id)
+      });
+    }
 
     return { data: { id: postRef.id } };
   } catch (error) {
@@ -339,6 +350,68 @@ export const toggleLike = async (type: 'post' | 'comment' | 'reply', id: string,
     }
   } catch (error) {
     console.error('Error toggling like:', error);
+    throw error;
+  }
+};
+
+export const searchPosts = async (
+  searchQuery: string,
+  sortBy: 'date' | 'likes' | 'comments' = 'date',
+  page: number = 1
+) => {
+  try {
+    const postsRef = collection(db, 'posts');
+    const constraints: any[] = [];
+    constraints.push(orderBy(sortBy === 'date' ? 'createdAt' : sortBy, 'desc'));
+    const q = query(postsRef, ...constraints);
+    const querySnapshot = await getDocs(q);
+
+    let posts = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as {
+      id: string;
+      title: string;
+      content: string;
+      category: string;
+      image_url?: string;
+      video_url?: string;
+      userId: string;
+      user_name: string;
+      likes_count: number;
+      comments_count: number;
+      createdAt: any;
+    }[];
+
+    // Client-side filtering for search text, if provided
+    if (searchQuery) {
+      const queryLower = searchQuery.toLowerCase();
+      posts = posts.filter(post =>
+        post.title.toLowerCase().includes(queryLower) ||
+        post.content.toLowerCase().includes(queryLower) ||
+        post.category.toLowerCase().includes(queryLower)
+      );
+    }
+
+    // Sort posts based on sortBy param
+    if (sortBy === 'date') {
+      posts = posts.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
+        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+    } else if (sortBy === 'likes') {
+      posts = posts.sort((a, b) => b.likes_count - a.likes_count);
+    } else if (sortBy === 'comments') {
+      posts = posts.sort((a, b) => b.comments_count - a.comments_count);
+    }
+
+    // Pagination: 10 posts per page
+    const start = (page - 1) * 10;
+    const pagedPosts = posts.slice(start, start + 10);
+    return { data: pagedPosts };
+  } catch (error) {
+    console.error('Error searching posts:', error);
     throw error;
   }
 };

@@ -1,9 +1,7 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { Search, Filter, Book, Plus } from 'lucide-react';
 import TutorialList from '../components/TutorialList';
 import GenerateTutorialModal from '../components/GenerateTutorialModal';
-import { useAuth } from '../context/AuthContext';
 
 const CATEGORIES = [
   'All',
@@ -23,13 +21,22 @@ const DIFFICULTY_LEVELS = [
 ];
 
 const Tutorials = () => {
-  const navigate = useNavigate();
-  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchQuery]);
 
   return (
     <div className="max-w-7xl mx-auto px-4">
@@ -144,7 +151,7 @@ const Tutorials = () => {
 
       {/* TutorialList now marks completed tutorials with a 'Completed' badge */}
       <TutorialList
-        searchQuery={searchQuery}
+        searchQuery={debouncedSearchQuery}
         category={selectedCategory === 'All' ? undefined : selectedCategory}
         difficulty={selectedDifficulty === 'All' ? undefined : selectedDifficulty}
       />
