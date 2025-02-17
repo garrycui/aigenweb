@@ -2,20 +2,20 @@ import { loadStripe } from '@stripe/stripe-js';
 import { db } from './firebase';
 import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 
-// Initialize Stripe
+// Initialize Stripe with publishable key
 export const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 // Subscription plans
 export const PLANS = {
   MONTHLY: {
-    id: 'prod_RkzNRPoVNvORlF',
+    id: 'price_1QrTOTQ1fESgBlyzNlgLYddv',
     name: 'Monthly',
     price: 9.99,
     interval: 'month',
     trialDays: 7
   },
   ANNUAL: {
-    id: 'prod_Rl1sIbE0yjGqLX',
+    id: 'price_1QtZVDQ1fESgBlyz9fSo3ir9',
     name: 'Annual',
     price: 99.99,
     interval: 'year',
@@ -27,35 +27,26 @@ export const PLANS = {
 // Create checkout session
 export const createCheckoutSession = async (userId: string, priceId: string) => {
   try {
-    console.log('Creating checkout session with:', { userId, priceId });
-
-    // Adjust the URL to your actual running server or use relative path
-    const response = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userId,
-        priceId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const { sessionId } = await response.json();
-    console.log('Received sessionId:', sessionId);
     const stripe = await stripePromise;
-    
     if (!stripe) {
       throw new Error('Stripe failed to initialize');
     }
 
-    const { error } = await stripe.redirectToCheckout({ sessionId });
-    
+    // Create the checkout session directly using Stripe Checkout
+    const { error } = await stripe.redirectToCheckout({
+      lineItems: [{
+        price: priceId,
+        quantity: 1
+      }],
+      mode: 'subscription',
+      successUrl: `${window.location.origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${window.location.origin}/dashboard`,
+      billingAddressCollection: 'required',
+      clientReferenceId: userId
+    });
+
     if (error) {
+      console.error('Stripe checkout error:', error);
       throw error;
     }
   } catch (error) {
@@ -64,7 +55,7 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
   }
 };
 
-// Get user subscription status
+// Get subscription status
 export const getSubscriptionStatus = async (userId: string) => {
   try {
     const userRef = doc(db, 'users', userId);
@@ -92,7 +83,12 @@ export const getSubscriptionStatus = async (userId: string) => {
     };
   } catch (error) {
     console.error('Error getting subscription status:', error);
-    throw error;
+    return {
+      isActive: false,
+      isTrialing: false,
+      trialEndsAt: null,
+      plan: null
+    };
   }
 };
 
@@ -107,7 +103,8 @@ export const startTrial = async (userId: string) => {
       trialEndsAt,
       isTrialing: true,
       subscriptionStatus: 'trialing',
-      subscriptionPlan: null
+      subscriptionPlan: null,
+      updatedAt: new Date()
     }, { merge: true });
 
     return {
@@ -127,7 +124,8 @@ export const updateSubscriptionStatus = async (userId: string, status: string, p
     await updateDoc(userRef, {
       subscriptionStatus: status,
       subscriptionPlan: plan || null,
-      isTrialing: false
+      isTrialing: false,
+      updatedAt: new Date()
     });
   } catch (error) {
     console.error('Error updating subscription status:', error);

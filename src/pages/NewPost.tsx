@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Image, Video, X } from 'lucide-react';
+import { Image, Video} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../lib/api';
 

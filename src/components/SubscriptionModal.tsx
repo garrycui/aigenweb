@@ -17,7 +17,6 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
   const handleSubscribe = async (priceId: string) => {
     if (!user) return;
     try {
-      console.log('Subscribing user:', user.id, 'price:', priceId);
       await createCheckoutSession(user.id, priceId);
     } catch (error) {
       console.error('Error creating checkout session:', error);
@@ -30,7 +29,10 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
     'Community forum participation',
     'AI chat assistant',
     'Progress tracking and analytics',
-    'Exclusive webinars and resources'
+    'Exclusive webinars and resources',
+    'Priority support',
+    'Advanced AI tools integration',
+    'Custom learning paths'
   ];
 
   return (
@@ -59,7 +61,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
                 </p>
               ) : (
                 <p className="mt-2 text-lg text-gray-600">
-                  Start your 7-day free trial today. Cancel anytime.
+                  Start your {PLANS.MONTHLY.trialDays}-day free trial today. Cancel anytime.
                 </p>
               )}
             </div>

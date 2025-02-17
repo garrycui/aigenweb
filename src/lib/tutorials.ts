@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, limit as firebaseLimit, serverTimestamp, or, and } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, or, and } from 'firebase/firestore';
 import OpenAI from 'openai';
 import { getLatestAssessment } from './api';
 import axios from 'axios';

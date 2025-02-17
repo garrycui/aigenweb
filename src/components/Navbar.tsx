@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Brain, Users, LayoutDashboard, Menu, X, LogOut, Bot, ChevronDown, BookOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Quote, Laugh } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getDailyContent } from '../lib/dailyContent';

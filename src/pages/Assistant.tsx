@@ -1,4 +1,3 @@
-import React from 'react';
 import AIChat from '../components/AIChat';
 import DailyContent from '../components/DailyContent';
 
