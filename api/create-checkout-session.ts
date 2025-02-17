@@ -12,11 +12,16 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    console.log('Request received:', req.body); // Add logging
+
     const { userId, priceId } = req.body;
+    if (!userId || !priceId) {
+      return res.status(400).json({ error: 'Missing userId or priceId' });
+    }
 
     // Create or retrieve customer
     const customers = await stripe.customers.list({
-      email: req.user.email,
+      email: req.user?.email || '',
       limit: 1
     });
     
@@ -31,6 +36,8 @@ export default async function handler(req: any, res: any) {
         }
       });
     }
+
+    console.log('Customer created or retrieved:', customer.id); // Add logging
 
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
@@ -50,9 +57,11 @@ export default async function handler(req: any, res: any) {
       }
     });
 
-    res.json({ sessionId: session.id });
+    console.log('Checkout session created:', session.id); // Add logging
+
+    return res.json({ sessionId: session.id });
   } catch (err) {
     console.error('Error creating checkout session:', err);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 }

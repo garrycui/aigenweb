@@ -23,6 +23,8 @@ export default async function handler(req: any, res: any) {
       webhookSecret
     );
 
+    console.log('Webhook event type:', event.type);
+
     // Handle the event
     switch (event.type) {
       case 'customer.subscription.created':
@@ -47,6 +49,7 @@ export default async function handler(req: any, res: any) {
         const session = event.data.object as Stripe.Checkout.Session;
         // Handle successful checkout
         if (session.mode === 'subscription') {
+          console.log('Subscription checkout complete:', session.id);
           const subscription = await stripe.subscriptions.retrieve(
             session.subscription as string
           );
@@ -59,9 +62,9 @@ export default async function handler(req: any, res: any) {
         break;
     }
 
-    res.json({ received: true });
+    return res.json({ received: true });
   } catch (err) {
     console.error('Webhook error:', err);
-    res.status(400).send(`Webhook Error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 }

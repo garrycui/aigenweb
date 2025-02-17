@@ -12,14 +12,14 @@ export const PLANS = {
     name: 'Monthly',
     price: 9.99,
     interval: 'month',
-    trialDays: 14
+    trialDays: 7
   },
   ANNUAL: {
     id: 'prod_Rl1sIbE0yjGqLX',
     name: 'Annual',
     price: 99.99,
     interval: 'year',
-    trialDays: 14,
+    trialDays: 7,
     discount: '17%'
   }
 };
@@ -27,6 +27,9 @@ export const PLANS = {
 // Create checkout session
 export const createCheckoutSession = async (userId: string, priceId: string) => {
   try {
+    console.log('Creating checkout session with:', { userId, priceId });
+
+    // Adjust the URL to your actual running server or use relative path
     const response = await fetch('/api/create-checkout-session', {
       method: 'POST',
       headers: {
@@ -38,7 +41,12 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
       }),
     });
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     const { sessionId } = await response.json();
+    console.log('Received sessionId:', sessionId);
     const stripe = await stripePromise;
     
     if (!stripe) {
