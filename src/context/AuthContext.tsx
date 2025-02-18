@@ -19,6 +19,8 @@ type AuthUser = {
   subscription: {
     status: 'trialing' | 'active' | 'canceled' | 'expired';
     plan: 'monthly' | 'annual' | null;
+    start: Date | null;
+    end: Date | null;
   };
   hasCompletedAssessment?: boolean;
 };
@@ -52,7 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           subscription: {
             status: subscription.isTrialing ? 'trialing' : 
                     subscription.isActive ? 'active' : 'expired',
-            plan: subscription.plan
+            plan: subscription.plan,
+            start: subscription.start,
+            end: subscription.end
           }
         });
       } else {

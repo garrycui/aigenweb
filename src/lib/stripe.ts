@@ -32,6 +32,9 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
       throw new Error('Stripe failed to initialize');
     }
 
+    // Encode userId and priceId into clientReferenceId
+    const clientReferenceId = `${userId}:${priceId}`;
+
     // Create the checkout session directly using Stripe Checkout
     const { error } = await stripe.redirectToCheckout({
       lineItems: [{
@@ -42,7 +45,7 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
       successUrl: `${window.location.origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${window.location.origin}/dashboard`,
       billingAddressCollection: 'required',
-      clientReferenceId: userId
+      clientReferenceId: clientReferenceId
     });
 
     if (error) {
@@ -67,7 +70,9 @@ export const getSubscriptionStatus = async (userId: string) => {
         isActive: false,
         isTrialing: false,
         trialEndsAt: null,
-        plan: null
+        plan: null,
+        start: null,
+        end: null
       };
     }
 
@@ -79,7 +84,9 @@ export const getSubscriptionStatus = async (userId: string) => {
       isActive: userData.subscriptionStatus === 'active' || isTrialing,
       isTrialing,
       trialEndsAt: trialEndsAt || null,
-      plan: userData.subscriptionPlan || null
+      plan: userData.subscriptionPlan || null,
+      start: userData.subscriptionStart?.toDate() || null,
+      end: userData.subscriptionEnd?.toDate() || null
     };
   } catch (error) {
     console.error('Error getting subscription status:', error);
@@ -87,7 +94,9 @@ export const getSubscriptionStatus = async (userId: string) => {
       isActive: false,
       isTrialing: false,
       trialEndsAt: null,
-      plan: null
+      plan: null,
+      start: null,
+      end: null
     };
   }
 };

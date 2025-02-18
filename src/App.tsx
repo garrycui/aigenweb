@@ -16,6 +16,7 @@ import { PostProvider } from './context/PostContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import TrialBanner from './components/TrialBanner';
+import ExpiredBanner from './components/ExpiredBanner';
 import SubscriptionModal from './components/SubscriptionModal';
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
         <Router>
           <div className="min-h-screen bg-gray-50">
             <TrialBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
+            <ExpiredBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
             <Navbar />
             <main className="container mx-auto px-4 py-8">
               <Routes>
