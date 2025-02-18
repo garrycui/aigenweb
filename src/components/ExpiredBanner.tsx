@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -10,7 +9,9 @@ interface ExpiredBannerProps {
 const ExpiredBanner: React.FC<ExpiredBannerProps> = ({ onUpgrade }) => {
   const { user } = useAuth();
 
-  if (user?.subscription.status !== 'expired') return null;
+  console.log('Subscription Status:', user?.subscription.status); // Add this line for debugging
+
+  if (!user?.subscription.status || user.subscription.status !== 'expired') return null;
 
   return (
     <div className="bg-red-600">

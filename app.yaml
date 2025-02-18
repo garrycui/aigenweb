@@ -1,4 +1,4 @@
-runtime: nodejs18
+runtime: nodejs22
 
 env_variables:
   VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY}
@@ -16,6 +16,7 @@ env_variables:
   VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
   VITE_STRIPE_SECRET_KEY: ${VITE_STRIPE_SECRET_KEY}
   VITE_APP_URL: ${VITE_APP_URL}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
 
 handlers:
   - url: /
@@ -33,3 +34,12 @@ automatic_scaling:
   target_cpu_utilization: 0.65
   min_instances: 1
   max_instances: 5
+
+# Add the start script
+entrypoint: npm run start
+
+# Specify the service name
+service: thrive
+
+# Optional: Specify the instance class
+instance_class: F2
