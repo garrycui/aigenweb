@@ -128,7 +128,11 @@ app.post('/webhook', async (req: express.Request, res: express.Response): Promis
       });
     } catch (error) {
       console.error('Error updating Firestore with Stripe customer id:', error);
-      res.status(500).send('Internal Server Error');
+      if (error instanceof Error && error.message.includes('503')) {
+        res.status(503).send('Service Unavailable. Please retry.');
+      } else {
+        res.status(500).send('Internal Server Error');
+      }
       return;
     }
   }
@@ -158,15 +162,11 @@ cron.schedule('0 0 * * *', async () => {
 // Serve static files from the dist directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use('/static', express.static(path.join(__dirname, '..', 'dist')));
+app.use(express.static(path.join(__dirname, '../dist')));
 
 // Catch-all route to serve index.html for all non-API routes
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api')) {
-    res.status(404).send('API route not found');
-  } else {
-    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
-  }
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 const PORT = process.env.PORT || 3000;

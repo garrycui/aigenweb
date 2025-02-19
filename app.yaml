@@ -19,27 +19,31 @@ env_variables:
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
 
 handlers:
-  - url: /
-    static_files: dist/index.html
-    upload: dist/index.html
+  # Webhook route – handled by your server code
+  - url: /webhook
+    script: auto
 
-  - url: /(.*)
-    static_files: dist/\1
-    upload: dist/(.*)
-
+  # Health check route
   - url: /_ah/health
     script: auto
+
+  # Serve static assets (only if the file exists)
+  - url: /(.*\.(css|js|png|jpg|svg|ico|mp4))
+    static_files: dist/\1
+    upload: dist/.*\.(css|js|png|jpg|svg|ico|mp4)
+
+  # Catch-all handler for client-side routes (like /dashboard)
+  - url: /.*
+    static_files: dist/index.html
+    upload: dist/index.html
 
 automatic_scaling:
   target_cpu_utilization: 0.65
   min_instances: 1
   max_instances: 5
 
-# Add the start script
-entrypoint: npm run start
+entrypoint: npm run build && npm run start
 
-# Specify the service name
-service: thrive
+service: default
 
-# Optional: Specify the instance class
 instance_class: F2
