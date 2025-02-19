@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import cron from 'node-cron';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -153,5 +155,21 @@ cron.schedule('0 0 * * *', async () => {
   });
 });
 
+// Serve static files from the dist directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use('/static', express.static(path.join(__dirname, '..', 'dist')));
+
+// Catch-all route to serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api')) {
+    res.status(404).send('API route not found');
+  } else {
+    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  }
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});

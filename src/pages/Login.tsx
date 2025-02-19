@@ -267,7 +267,7 @@ const Login = () => {
                       Start with a Free Trial
                     </h3>
                     <ul className="text-sm text-indigo-700 space-y-1">
-                      <li>✓ 3 days of full access</li>
+                      <li>✓ 7 days of full access</li>
                       <li>✓ No credit card required for trial</li>
                       <li>✓ Cancel anytime</li>
                     </ul>
