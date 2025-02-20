@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "allowJs": true,
+    "esModuleInterop": true,
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": false,
+    "isolatedModules": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/server.ts"],
+  "exclude": ["node_modules"]
+}

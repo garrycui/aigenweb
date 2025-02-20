@@ -1,19 +1,18 @@
 import express from 'express';
-import bodyParser from 'body-parser';
 import Stripe from 'stripe';
-import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import cron from 'node-cron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-dotenv.config();
+// Conditionally load dotenv in development mode
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 const app = express();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2023-10-16' });
-
-app.use(bodyParser.raw({ type: 'application/json' }));
 
 // Subscription plans
 const PLANS = {
@@ -48,19 +47,18 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
-app.post('/webhook', async (req: express.Request, res: express.Response): Promise<void> => {
+//app.post('/webhook', async (req: express.Request, res: express.Response): Promise<void> => {
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
   try {
+    // req.body is now a Buffer, as required by stripe.webhooks.constructEvent
     event = stripe.webhooks.constructEvent(req.body, sig!, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch (err) {
-    if (err instanceof Error) {
-      console.error('Webhook signature verification failed:', err.message);
-    } else {
-      console.error('Webhook signature verification failed:', err);
-    }
-    res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Webhook signature verification failed:', errorMsg);
+    res.status(400).send(`Webhook Error: ${errorMsg}`);
     return;
   }
 
@@ -157,6 +155,11 @@ cron.schedule('0 0 * * *', async () => {
       console.error('Error updating subscription status:', error);
     }
   });
+});
+
+// Health check endpoint
+app.get('/_ah/health', (_req, res) => {
+  res.status(200).send('OK');
 });
 
 // Serve static files from the dist directory

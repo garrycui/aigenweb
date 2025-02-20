@@ -28,11 +28,11 @@ handlers:
     script: auto
 
   # Serve static assets (only if the file exists)
-  - url: /(.*\.(css|js|png|jpg|svg|ico|mp4))
+  - url: /(.*\.(css|js|png|jpg|svg|ico|mp4))$
     static_files: dist/\1
-    upload: dist/.*\.(css|js|png|jpg|svg|ico|mp4)
+    upload: dist/.*\.(css|js|png|jpg|svg|ico|mp4)$
 
-  # Catch-all handler for client-side routes (like /dashboard)
+  # Catch-all handler for client-side routes
   - url: /.*
     static_files: dist/index.html
     upload: dist/index.html
@@ -42,7 +42,7 @@ automatic_scaling:
   min_instances: 1
   max_instances: 5
 
-entrypoint: npm run build && npm run start
+entrypoint: npm run start
 
 service: default
 
