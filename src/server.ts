@@ -6,13 +6,19 @@ import cron from 'node-cron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Conditionally load dotenv in development mode
-if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
-}
+// // Conditionally load dotenv in development mode
+// if (process.env.NODE_ENV !== 'production') {
+//   import('dotenv').then(dotenv => dotenv.config());
+// }
 
 const app = express();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2023-10-16' });
+
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  throw new Error('Stripe secret key is not defined');
+}
+const stripe = new Stripe(stripeSecretKey);
+console.log('Stripe secret key:', stripeSecretKey);
 
 // Subscription plans
 const PLANS = {
@@ -47,96 +53,152 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
-//app.post('/webhook', async (req: express.Request, res: express.Response): Promise<void> => {
-app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
+// Use JSON parser for all non-webhook routes
+// app.use(
+//   (
+//     req: express.Request,
+//     res: express.Response,
+//     next: express.NextFunction
+//   ): void => {
+//     if (req.originalUrl === '/webhook') {
+//       next();
+//     } else {
+//       express.json()(req, res, next);
+//     }
+//   }
+// );
 
-  try {
-    // req.body is now a Buffer, as required by stripe.webhooks.constructEvent
-    event = stripe.webhooks.constructEvent(req.body, sig!, process.env.STRIPE_WEBHOOK_SECRET!);
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Webhook signature verification failed:', errorMsg);
-    res.status(400).send(`Webhook Error: ${errorMsg}`);
-    return;
-  }
+// Webhook endpoint
+app.post(
+  '/webhook',
+  // Stripe requires the raw body to construct the event
+  express.raw({type: 'application/json'}),
+  (req: express.Request, res: express.Response): void => {
+    const sig = req.headers['stripe-signature'];
+    const body = req.body;
+    console.log('Stripe webhook received:', body);
+    console.log('Stripe signature:', sig);
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
-    const clientReferenceId = session.client_reference_id;
-    const customerId = session.customer as string;
-
-    if (!clientReferenceId) {
-      console.error('Client Reference ID is null or undefined');
-      res.status(400).send('Client Reference ID is required');
+    if (!sig) {
+      console.error('Stripe signature is missing');
+      res.status(400).send('Stripe signature is required');
       return;
     }
 
-    if (!customerId) {
-      console.error('Customer ID is null or undefined');
-      res.status(400).send('Customer ID is required');
-      return;
-    }
-
-    // Decode userId and priceId from clientReferenceId
-    const [userId, priceId] = clientReferenceId.split(':');
-
-    if (!userId) {
-      console.error('User ID is null or undefined');
-      res.status(400).send('User ID is required');
-      return;
-    }
-
-    if (!priceId) {
-      console.error('Price ID is null or undefined');
-      res.status(400).send('Price ID is required');
-      return;
-    }
-
-    let plan;
-    let subscriptionEnd;
-    const subscriptionStart = new Date();
-
-    if (priceId === PLANS.MONTHLY.id) {
-      plan = 'monthly';
-      subscriptionEnd = new Date(subscriptionStart);
-      subscriptionEnd.setMonth(subscriptionEnd.getMonth() + 1);
-    } else if (priceId === PLANS.ANNUAL.id) {
-      plan = 'annual';
-      subscriptionEnd = new Date(subscriptionStart);
-      subscriptionEnd.setFullYear(subscriptionEnd.getFullYear() + 1);
-    } else {
-      res.status(400).send('Unknown price ID');
-      return;
-    }
+    let event: Stripe.Event;
 
     try {
-      const userRef = doc(db, 'users', userId);
-      const trialEndsAt = new Date(subscriptionStart.getTime() - 60000); // Set trialEndsAt to one minute before the current time
-      await updateDoc(userRef, {
-        stripeCustomerId: customerId,
-        subscriptionStatus: 'active',
-        subscriptionPlan: plan,
-        subscriptionStart,
-        subscriptionEnd,
-        isTrialing: false, // End the trial period
-        trialEndsAt, // Update trialEndsAt
-        updatedAt: new Date()
-      });
-    } catch (error) {
-      console.error('Error updating Firestore with Stripe customer id:', error);
-      if (error instanceof Error && error.message.includes('503')) {
-        res.status(503).send('Service Unavailable. Please retry.');
+      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+      console.log('Event constructed:', process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+      if (err instanceof Error) {
+        console.log(`❌ Error message: ${err.message}`);
+        res.status(400).send(`Webhook Error: ${err.message}`);
       } else {
-        res.status(500).send('Internal Server Error');
+        console.log('❌ Unknown error');
+        res.status(400).send('Webhook Error: Unknown error');
       }
       return;
     }
-  }
 
-  res.status(200).send('Received');
-});
+    // Successfully constructed event
+    console.log('✅ Success:', event.id);
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const clientReferenceId = session.client_reference_id;
+      const customerId = session.customer as string;
+
+      console.log('Checkout session completed event received');
+      console.log('Client Reference ID:', clientReferenceId);
+      console.log('Customer ID:', customerId);
+
+      if (!clientReferenceId) {
+        console.error('Client Reference ID is null or undefined');
+        res.status(400).send('Client Reference ID is required');
+        return;
+      }
+
+      if (!customerId) {
+        console.error('Customer ID is null or undefined');
+        res.status(400).send('Customer ID is required');
+        return;
+      }
+
+      // Decode userId and priceId from clientReferenceId
+      const [userId, priceId] = clientReferenceId.split(':');
+
+      console.log('User ID:', userId);
+      console.log('Price ID:', priceId);
+
+      if (!userId) {
+        console.error('User ID is null or undefined');
+        res.status(400).send('User ID is required');
+        return;
+      }
+
+      if (!priceId) {
+        console.error('Price ID is null or undefined');
+        res.status(400).send('Price ID is required');
+        return;
+      }
+
+      let plan;
+      let subscriptionEnd;
+      const subscriptionStart = new Date();
+
+      if (priceId === PLANS.MONTHLY.id) {
+        plan = 'monthly';
+        subscriptionEnd = new Date(subscriptionStart);
+        subscriptionEnd.setMonth(subscriptionEnd.getMonth() + 1);
+        console.log('Monthly plan selected');
+      } else if (priceId === PLANS.ANNUAL.id) {
+        plan = 'annual';
+        subscriptionEnd = new Date(subscriptionStart);
+        subscriptionEnd.setFullYear(subscriptionEnd.getFullYear() + 1);
+        console.log('Annual plan selected');
+      } else {
+        console.error('Unknown price ID:', priceId);
+        res.status(400).send('Unknown price ID');
+        return;
+      }
+
+      console.log('Subscription start:', subscriptionStart);
+      console.log('Subscription end:', subscriptionEnd);
+
+      try {
+        const userRef = doc(db, 'users', userId);
+        const trialEndsAt = new Date(subscriptionStart.getTime() - 60000); // Set trialEndsAt to one minute before the current time
+        updateDoc(userRef, {
+          stripeCustomerId: customerId,
+          subscriptionStatus: 'active',
+          subscriptionPlan: plan,
+          subscriptionStart,
+          subscriptionEnd,
+          isTrialing: false, // End the trial period
+          trialEndsAt, // Update trialEndsAt
+          updatedAt: new Date()
+        });
+        console.log('Firestore updated successfully for user:', userId);
+      } catch (error) {
+        console.error('Error updating Firestore with Stripe customer id:', error);
+        if (error instanceof Error && error.message.includes('503')) {
+          res.status(503).send('Service Unavailable. Please retry.');
+        } else {
+          res.status(500).send('Internal Server Error');
+        }
+        return;
+      }
+    } else {
+      console.log('Unhandled event type:', event.type);
+    }
+
+    res.status(200).send('Received');
+  }
+);
+
+// Parse JSON for all other routes
+// app.use(express.json());
 
 // Scheduled job to check for expired subscriptions
 cron.schedule('0 0 * * *', async () => {
