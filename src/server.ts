@@ -54,19 +54,19 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
 // Use JSON parser for all non-webhook routes
-// app.use(
-//   (
-//     req: express.Request,
-//     res: express.Response,
-//     next: express.NextFunction
-//   ): void => {
-//     if (req.originalUrl === '/webhook') {
-//       next();
-//     } else {
-//       express.json()(req, res, next);
-//     }
-//   }
-// );
+app.use(
+  (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): void => {
+    if (req.originalUrl === '/webhook') {
+      next();
+    } else {
+      express.json()(req, res, next);
+    }
+  }
+);
 
 // Webhook endpoint
 app.post(
@@ -196,9 +196,6 @@ app.post(
     res.status(200).send('Received');
   }
 );
-
-// Parse JSON for all other routes
-// app.use(express.json());
 
 // Scheduled job to check for expired subscriptions
 cron.schedule('0 0 * * *', async () => {
