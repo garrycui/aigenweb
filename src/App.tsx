@@ -25,7 +25,7 @@ function App() {
   return (
     <AuthProvider>
       <PostProvider>
-        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Router>
           <div className="min-h-screen bg-gray-50">
             <TrialBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
             <ExpiredBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
