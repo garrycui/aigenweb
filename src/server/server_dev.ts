@@ -5,11 +5,12 @@ import { getFirestore, doc, updateDoc, collection, getDocs, query, where } from 
 import cron from 'node-cron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 
-// // Conditionally load dotenv in development mode
-// if (process.env.NODE_ENV !== 'production') {
-//   import('dotenv').then(dotenv => dotenv.config());
-// }
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envPath = path.resolve(__dirname, '../.env.development');
+dotenv.config({ path: envPath });
 
 const app = express();
 
@@ -73,7 +74,7 @@ app.post(
   '/webhook',
   // Stripe requires the raw body to construct the event
   express.raw({type: 'application/json'}),
-  (req: express.Request, res: express.Response): void => {
+  async (req: express.Request, res: express.Response): Promise<void> => {
     const sig = req.headers['stripe-signature'];
     const body = req.body;
     console.log('Stripe webhook received:', body);
@@ -88,8 +89,8 @@ app.post(
     let event: Stripe.Event;
 
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
-      console.log('Event constructed:', process.env.STRIPE_WEBHOOK_SECRET);
+      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET_TEST!);
+      console.log('Event constructed:', process.env.STRIPE_WEBHOOK_SECRET_TEST);
     } catch (err) {
       if (err instanceof Error) {
         console.log(`❌ Error message: ${err.message}`);
@@ -158,36 +159,26 @@ app.post(
         subscriptionEnd.setFullYear(subscriptionEnd.getFullYear() + 1);
         console.log('Annual plan selected');
       } else {
-        console.error('Unknown price ID:', priceId);
-        res.status(400).send('Unknown price ID');
+        console.error('Invalid price ID');
+        res.status(400).send('Invalid price ID');
         return;
       }
 
-      console.log('Subscription start:', subscriptionStart);
-      console.log('Subscription end:', subscriptionEnd);
-
       try {
         const userRef = doc(db, 'users', userId);
-        const trialEndsAt = new Date(subscriptionStart.getTime() - 60000); // Set trialEndsAt to one minute before the current time
-        updateDoc(userRef, {
-          stripeCustomerId: customerId,
+        await updateDoc(userRef, {
           subscriptionStatus: 'active',
           subscriptionPlan: plan,
           subscriptionStart,
           subscriptionEnd,
-          isTrialing: false, // End the trial period
-          trialEndsAt, // Update trialEndsAt
           updatedAt: new Date()
         });
-        console.log('Firestore updated successfully for user:', userId);
+
+        console.log('User subscription updated successfully');
+        res.status(200).send('User subscription updated successfully');
       } catch (error) {
-        console.error('Error updating Firestore with Stripe customer id:', error);
-        if (error instanceof Error && error.message.includes('503')) {
-          res.status(503).send('Service Unavailable. Please retry.');
-        } else {
-          res.status(500).send('Internal Server Error');
-        }
-        return;
+        console.error('Error updating user subscription:', error);
+        res.status(500).send('Internal Server Error');
       }
     } else {
       console.log('Unhandled event type:', event.type);
@@ -210,8 +201,9 @@ cron.schedule('0 0 * * *', async () => {
         subscriptionStatus: 'expired',
         updatedAt: new Date()
       });
+      console.log('Subscription status updated to expired for user:', doc.id);
     } catch (error) {
-      console.error('Error updating subscription status:', error);
+      console.error('Error updating subscription status for user:', doc.id, error);
     }
   });
 });
@@ -222,16 +214,14 @@ app.get('/_ah/health', (_req, res) => {
 });
 
 // Serve static files from the dist directory
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, '../dist')));
+app.use(express.static(path.join(__dirname, '../src')));
 
 // Catch-all route to serve index.html for all non-API routes
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+  res.sendFile(path.join(__dirname, '../src/index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Development server is running on port ${PORT}`);
 });

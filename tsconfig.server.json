@@ -14,6 +14,6 @@
     "isolatedModules": true,
     "resolveJsonModule": true
   },
-  "include": ["src/server.ts"],
+  "include": ["src/server/server.ts", "src/server/server_dev.ts"],
   "exclude": ["node_modules"]
 }
