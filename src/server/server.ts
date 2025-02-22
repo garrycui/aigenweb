@@ -13,7 +13,6 @@ if (!stripeSecretKey) {
   throw new Error('Stripe secret key is not defined');
 }
 const stripe = new Stripe(stripeSecretKey);
-console.log('Stripe secret key:', stripeSecretKey);
 
 // Subscription plans
 const PLANS = {

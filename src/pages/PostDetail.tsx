@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, ThumbsUp, Clock, Share2, Bookmark, ArrowLeft } from 'lucide-react';
 import { fetchPost, createComment, createReply, toggleLike } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import ReactMarkdown from 'react-markdown';
 
 interface Reply {
   id: string;
@@ -41,18 +42,22 @@ interface Post {
   is_liked?: boolean;
 }
 
+interface ReplyingTo {
+  commentId: string;
+}
+
 const PostDetail = () => {
   const { id } = useParams<{ id: string }>();
   const [post, setPost] = useState<Post | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [newComment, setNewComment] = useState("");
-  const [replyingTo, setReplyingTo] = useState<{commentId: string} | null>(null);
-  const [replyContent, setReplyContent] = useState("");
+  const [newComment, setNewComment] = useState<string>("");
+  const [replyingTo, setReplyingTo] = useState<ReplyingTo | null>(null);
+  const [replyContent, setReplyContent] = useState<string>("");
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const formatDate = (timestamp: any) => {
+  const formatDate = (timestamp: any): string => {
     if (!timestamp) return '';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleDateString();
@@ -182,7 +187,7 @@ const PostDetail = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto px-4 py-8">
       <Link 
         to="/forum"
         className="inline-flex items-center text-indigo-600 hover:text-indigo-800 mb-6"
@@ -191,7 +196,7 @@ const PostDetail = () => {
         Back to Forum
       </Link>
 
-      <div className="bg-white rounded-lg shadow-md">
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full">
@@ -204,15 +209,22 @@ const PostDetail = () => {
           </div>
           
           <h1 className="text-3xl font-bold text-gray-900 mb-4">{post.title}</h1>
-          <p className="text-gray-600 mb-6">{post.content}</p>
 
           {post.image_url && (
-            <img
-              src={post.image_url}
-              alt="Post illustration"
-              className="w-full h-96 object-cover rounded-lg mb-6"
-            />
+            <div className="mb-6">
+              <img
+                src={post.image_url}
+                alt="Post illustration"
+                className="w-full h-96 object-cover rounded-lg"
+              />
+            </div>
           )}
+
+          <div className="prose prose-indigo mb-6">
+            <ReactMarkdown>
+              {post.content}
+            </ReactMarkdown>
+          </div>
 
           {post.video_url && (
             <div className="w-full h-96 mb-6">
@@ -224,9 +236,6 @@ const PostDetail = () => {
               ></iframe>
             </div>
           )}
-          <p className="mt-4 text-gray-600">
-            {/* Your references here */}
-          </p>
           
           <div className="flex items-center justify-between border-t pt-4">
             <div className="flex items-center space-x-4">
@@ -261,99 +270,18 @@ const PostDetail = () => {
         <div className="bg-gray-50 p-6">
           <h3 className="font-medium text-gray-900 mb-4">Comments</h3>
           <div className="space-y-4">
-            {post.comments?.map(comment => (
-              <div key={comment.id} className="border-l-2 border-gray-200 pl-4">
-                <div className="bg-white p-4 rounded-lg">
-                  <div className="flex justify-between mb-2">
-                    <span className="font-medium text-gray-900">{comment.user_name}</span>
-                    <span className="text-sm text-gray-500">
-                      {formatDate(comment.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-gray-600 mb-2">{comment.content}</p>
-                  <div className="flex items-center space-x-4">
-                    <button
-                      onClick={() => handleLike('comment', comment.id)}
-                      className={`text-sm ${
-                        comment.is_liked
-                          ? 'text-indigo-600'
-                          : 'text-gray-500 hover:text-indigo-600'
-                      }`}
-                    >
-                      <ThumbsUp
-                        className={`h-4 w-4 inline mr-1 ${
-                          comment.is_liked ? 'fill-current' : ''
-                        }`}
-                      />
-                      {comment.likes_count}
-                    </button>
-                    <button
-                      onClick={() => setReplyingTo({ commentId: comment.id })}
-                      className="text-sm text-gray-500 hover:text-indigo-600"
-                    >
-                      Reply
-                    </button>
-                  </div>
-
-                  {replyingTo?.commentId === comment.id && (
-                    <div className="mt-2">
-                      <textarea
-                        value={replyContent}
-                        onChange={(e) => setReplyContent(e.target.value)}
-                        placeholder="Write your reply..."
-                        className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        rows={2}
-                      />
-                      <div className="flex justify-end space-x-2 mt-2">
-                        <button
-                          onClick={() => setReplyingTo(null)}
-                          className="text-sm text-gray-500 hover:text-gray-700"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => handleReply(comment.id)}
-                          className="text-sm bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700"
-                          disabled={!replyContent.trim()}
-                        >
-                          Reply
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {comment.replies && comment.replies.length > 0 && (
-                    <div className="ml-4 mt-2 space-y-2">
-                      {comment.replies.map(reply => (
-                        <div key={reply.id} className="bg-gray-50 p-3 rounded-lg">
-                          <div className="flex justify-between mb-1">
-                            <span className="font-medium text-gray-900">{reply.user_name}</span>
-                            <span className="text-sm text-gray-500">
-                              {formatDate(reply.created_at)}
-                            </span>
-                          </div>
-                          <p className="text-gray-600">{reply.content}</p>
-                          <button
-                            onClick={() => handleLike('reply', reply.id)}
-                            className={`text-sm mt-1 ${
-                              reply.is_liked
-                                ? 'text-indigo-600'
-                                : 'text-gray-500 hover:text-indigo-600'
-                            }`}
-                          >
-                            <ThumbsUp
-                              className={`h-4 w-4 inline mr-1 ${
-                                reply.is_liked ? 'fill-current' : ''
-                              }`}
-                            />
-                            {reply.likes_count}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+            {post.comments?.map((comment: Comment) => (
+              <CommentSection
+                key={comment.id}
+                comment={comment}
+                replyingTo={replyingTo}
+                setReplyingTo={setReplyingTo}
+                replyContent={replyContent}
+                setReplyContent={setReplyContent}
+                handleLike={handleLike}
+                handleReply={handleReply}
+                formatDate={formatDate}
+              />
             ))}
           </div>
 
@@ -380,5 +308,120 @@ const PostDetail = () => {
     </div>
   );
 };
+
+interface CommentSectionProps {
+  comment: Comment;
+  replyingTo: ReplyingTo | null;
+  setReplyingTo: React.Dispatch<React.SetStateAction<ReplyingTo | null>>;
+  replyContent: string;
+  setReplyContent: React.Dispatch<React.SetStateAction<string>>;
+  handleLike: (type: 'post' | 'comment' | 'reply', itemId: string) => Promise<void>;
+  handleReply: (commentId: string) => Promise<void>;
+  formatDate: (timestamp: any) => string;
+}
+
+const CommentSection: React.FC<CommentSectionProps> = ({
+  comment,
+  replyingTo,
+  setReplyingTo,
+  replyContent,
+  setReplyContent,
+  handleLike,
+  handleReply,
+  formatDate
+}) => (
+  <div className="border-l-2 border-gray-200 pl-4">
+    <div className="bg-white p-4 rounded-lg">
+      <div className="flex justify-between mb-2">
+        <span className="font-medium text-gray-900">{comment.user_name}</span>
+        <span className="text-sm text-gray-500">
+          {formatDate(comment.created_at)}
+        </span>
+      </div>
+      <p className="text-gray-600 mb-2">{comment.content}</p>
+      <div className="flex items-center space-x-4">
+        <button
+          onClick={() => handleLike('comment', comment.id)}
+          className={`text-sm ${
+            comment.is_liked
+              ? 'text-indigo-600'
+              : 'text-gray-500 hover:text-indigo-600'
+          }`}
+        >
+          <ThumbsUp
+            className={`h-4 w-4 inline mr-1 ${
+              comment.is_liked ? 'fill-current' : ''
+            }`}
+          />
+          {comment.likes_count}
+        </button>
+        <button
+          onClick={() => setReplyingTo({ commentId: comment.id })}
+          className="text-sm text-gray-500 hover:text-indigo-600"
+        >
+          Reply
+        </button>
+      </div>
+
+      {replyingTo?.commentId === comment.id && (
+        <div className="mt-2">
+          <textarea
+            value={replyContent}
+            onChange={(e) => setReplyContent(e.target.value)}
+            placeholder="Write your reply..."
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            rows={2}
+          />
+          <div className="flex justify-end space-x-2 mt-2">
+            <button
+              onClick={() => setReplyingTo(null)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleReply(comment.id)}
+              className="text-sm bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700"
+              disabled={!replyContent.trim()}
+            >
+              Reply
+            </button>
+          </div>
+        </div>
+      )}
+
+      {comment.replies && comment.replies.length > 0 && (
+        <div className="ml-4 mt-2 space-y-2">
+          {comment.replies.map((reply: Reply) => (
+            <div key={reply.id} className="bg-gray-50 p-3 rounded-lg">
+              <div className="flex justify-between mb-1">
+                <span className="font-medium text-gray-900">{reply.user_name}</span>
+                <span className="text-sm text-gray-500">
+                  {formatDate(reply.created_at)}
+                </span>
+              </div>
+              <p className="text-gray-600">{reply.content}</p>
+              <button
+                onClick={() => handleLike('reply', reply.id)}
+                className={`text-sm mt-1 ${
+                  reply.is_liked
+                    ? 'text-indigo-600'
+                    : 'text-gray-500 hover:text-indigo-600'
+                }`}
+              >
+                <ThumbsUp
+                  className={`h-4 w-4 inline mr-1 ${
+                    reply.is_liked ? 'fill-current' : ''
+                  }`}
+                />
+                {reply.likes_count}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+);
 
 export default PostDetail;

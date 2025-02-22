@@ -14,7 +14,7 @@
     "backup": "node scripts/backup.js create",
     "backup:list": "node scripts/backup.js list",
     "backup:restore": "node scripts/backup.js restore",
-    "generate-content": "node scripts/generateContent.ts"
+    "generate-content": "ts-node scripts/generateContent.ts"
   },
   "dependencies": {
     "@stripe/stripe-js": "^5.6.0",

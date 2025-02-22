@@ -1,39 +1,27 @@
 import OpenAI from 'openai';
-import { searchWeb, getImageSuggestions } from './webSearch.ts';
 import { config } from 'dotenv';
-import { initializeApp } from 'firebase/app';
+import { fetchTrendingTopics } from './trendingTopics.ts';
+import { fetchYouTubeVideos, rankVideos } from './youtubeData.ts';
+import { getPexelsImage } from './imageAPI.ts';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 config();
-
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID,
-  measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 
 const openai = new OpenAI({
   apiKey: process.env.VITE_OPENAI_API_KEY,
   dangerouslyAllowBrowser: true
 });
 
-interface ContentCategory {
+export interface ContentCategory {
   id: string;
   name: string;
   description: string;
   searchQueries: string[];
-  preferredMediaType: 'image' | 'video' | 'both';
+  // 'both' means we'll fetch both a video and a post card image.
+  preferredMediaType: 'both' | 'video' | 'image';
 }
 
+// Full set of production-ready content categories:
 export const CONTENT_CATEGORIES: ContentCategory[] = [
   {
     id: 'income-opportunities',
@@ -114,121 +102,159 @@ export const CONTENT_CATEGORIES: ContentCategory[] = [
   }
 ];
 
-interface Source {
+export interface Source {
   title: string;
   url: string;
   snippet: string;
-  type: 'article' | 'video';
-  thumbnailUrl?: string;
-  videoId?: string;
+  type: 'video';
+  videoId: string;
 }
 
-interface GeneratedContent {
+export interface GeneratedContent {
   title: string;
   content: string;
   category: string;
-  sources: Source[];
-  imageUrl?: string;
-  videoUrl?: string;
+  source: Source;
+  videoUrl: string;
+  imageUrl: string;
 }
 
-const generatePrompt = (category: ContentCategory, sources: Source[]): string => {
-  const sourceText = sources.map(s => `${s.title} (${s.type}): ${s.snippet}`).join('\n');
-  
-  return `
-    Create an informative and engaging forum post about ${category.description}.
-    
-    Use these sources for reference:
-    ${sourceText}
-    
-    Requirements:
-    1. Write in a professional yet conversational tone
-    2. Include specific examples and data points from the sources
-    3. Add proper attribution for any facts or quotes
-    4. Structure the content with clear sections
-    5. Reference the included ${category.preferredMediaType === 'both' ? 'image and video' : category.preferredMediaType} content
-    6. End with discussion questions to engage readers
-    
-    Format:
-    - Title: Create an attention-grabbing title
-    - Content: Write 500-800 words
-    - Sources: Include numbered references
-    
-    Focus on providing actionable insights and valuable information for readers.
-  `;
-};
-
-export const generateContent = async (category: ContentCategory): Promise<GeneratedContent> => {
+export const generateContent = async (category: ContentCategory): Promise<GeneratedContent[]> => {
   try {
-    // Search for relevant content
-    const sources = await searchWeb(category.searchQueries[0], 5);
+    console.log(`Generating content for category: ${category.name}`);
     
-    // Find relevant media based on category preference
-    let imageUrl: string | undefined;
-    let videoUrl: string | undefined;
+    // Select a random search query from the category's search queries.
+    const randomQuery = category.searchQueries[Math.floor(Math.random() * category.searchQueries.length)];
+    console.log(`Selected random query: ${randomQuery}`);
+    
+    // Use the random search query to fetch trending topics.
+    const trendingTopics = await fetchTrendingTopics(randomQuery);
+    
+    const generatedContents: GeneratedContent[] = [];
 
-    if (category.preferredMediaType === 'image' || category.preferredMediaType === 'both') {
-      const images = await getImageSuggestions(category.searchQueries[0]);
-      if (images.length > 0) {
-        imageUrl = images[0];
+    for (const trendingQuery of trendingTopics) {
+      console.log(`Processing trending query: ${trendingQuery}`);
+      
+      // Use the trending query to fetch YouTube videos.
+      const videos = await fetchYouTubeVideos(trendingQuery, 5);
+      if (videos.length === 0) {
+        console.log(`No YouTube videos found for query: ${trendingQuery}`);
+        continue;
+      }
+      
+      const rankedVideos = rankVideos(videos);
+      const topVideo = rankedVideos[0];
+
+      const source: Source = {
+        title: topVideo.title,
+        url: topVideo.url,
+        snippet: topVideo.snippet,
+        type: 'video',
+        videoId: topVideo.videoId
+      };
+
+      // We no longer fetch an image for the final article text, 
+      // but we still store an image in the DB if you want a post card.
+      const pexelsImages = await getPexelsImage(trendingQuery);
+      const imageUrl = pexelsImages.length > 0 ? pexelsImages[0] : '';
+
+      // Generate content using GPT-4o with a refined prompt.
+      // The prompt instructs GPT to produce a short, strictly formatted Markdown article,
+      // focusing on the YouTube video (no images or raw URLs in the text).
+      const prompt = `
+        You are an AI content writer. Produce a very short, user-friendly article in Markdown format.
+        Follow this strict layout:
+        
+        1. # Title
+        2. Short introduction paragraph (2-3 sentences)
+        3. ## Key Insights
+        4. A few bullet points with actionable insights from the video
+        5. ## Discussion
+        6. A short concluding line or question prompting user engagement
+        
+        Important rules:
+        - Keep it under 200 words total.
+        - Do not show any raw URL or embed code in the final text.
+        - The main focus is on the YouTube video. Mention it, but do not reveal the URL.
+        - Do not mention or show the image in the text.
+        
+        Video Info:
+        - Title: ${topVideo.title}
+        - Description: ${topVideo.snippet}
+        - The video is about: "${trendingQuery}"
+        - We are discussing: "${category.description}"
+      `;
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert content writer focusing on AI topics. The user wants a very short, strictly formatted Markdown article about a single YouTube video, no images or raw URLs.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 500,
+        temperature: 0.7
+      });
+
+      const response = completion.choices[0].message?.content;
+      if (!response) {
+        throw new Error('Failed to generate content');
+      }
+
+      // We parse out a 'Title:' line if GPT includes one. 
+      // Otherwise, we just keep the entire markdown as 'content'.
+      let title = topVideo.title; // default fallback
+      let content = response;
+
+      // If GPT includes a top line with "# " for title, we can parse it:
+      const lines = response.split('\n');
+      if (lines[0].startsWith('# ')) {
+        // The first line might be "# Some Title"
+        title = lines[0].replace(/^# /, '').trim();
+        // Reconstruct the rest
+        content = lines.slice(1).join('\n');
+      }
+
+      generatedContents.push({
+        title,
+        content,
+        category: category.name,
+        source,
+        videoUrl: `https://www.youtube.com/embed/${topVideo.videoId}`,
+        imageUrl
+      });
+
+      // For brevity, we only produce 3 articles max per call
+      if (generatedContents.length >= 3) {
+        break;
       }
     }
 
-    if (category.preferredMediaType === 'video' || category.preferredMediaType === 'both') {
-      const videoSource = sources.find(s => s.type === 'video');
-      if (videoSource?.videoId) {
-        videoUrl = videoSource.url;
-      }
+    if (generatedContents.length < 1) {
+      throw new Error('No suitable content generated.');
     }
 
-    // Generate content using ChatGPT
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert content writer specializing in AI topics.'
-        },
-        {
-          role: 'user',
-          content: generatePrompt(category, sources)
-        }
-      ]
-    });
-
-    const response = completion.choices[0].message?.content;
-    if (!response) {
-      throw new Error('Failed to generate content');
-    }
-
-    // Parse the response
-    const lines = response.split('\n');
-    const title = lines[0].replace('Title: ', '');
-    const content = lines.slice(1).join('\n');
-
-    return {
-      title,
-      content,
-      category: category.name,
-      sources,
-      imageUrl,
-      videoUrl
-    };
+    return generatedContents;
   } catch (error) {
     console.error('Error generating content:', error);
     throw error;
   }
 };
 
-export const publishContent = async (content: GeneratedContent, userId: string) => {
+export const publishContent = async (content: GeneratedContent, userId: string): Promise<string> => {
   try {
-    const postRef = await addDoc(collection(db, 'posts'), {
+    const postRef = await addDoc(collection(getFirestore(), 'posts'), {
       title: content.title,
       content: content.content,
       category: content.category,
-      image_url: content.imageUrl,
       video_url: content.videoUrl,
-      sources: content.sources,
+      image_url: content.imageUrl,
+      source: content.source,
       userId,
       user_name: 'AI Content Generator',
       likes_count: 0,
@@ -236,7 +262,6 @@ export const publishContent = async (content: GeneratedContent, userId: string) 
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-
     return postRef.id;
   } catch (error) {
     console.error('Error publishing content:', error);

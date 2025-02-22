@@ -1,7 +1,8 @@
+// generateContent.ts
 import cron from 'node-cron';
 import { config } from 'dotenv';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { CONTENT_CATEGORIES, generateContent, publishContent } from '../src/lib/contentGenerator.ts';
 
 config();
@@ -25,45 +26,32 @@ const SYSTEM_USER_ID = 'ai-content-generator';
 
 async function generateDailyContent() {
   try {
-    console.log('Starting daily content generation...');
-
-    // Generate one post for each category
     for (const category of CONTENT_CATEGORIES) {
-      console.log(`Generating content for category: ${category.name}`);
-      
       try {
         const content = await generateContent(category);
-        const postId = await publishContent(content, SYSTEM_USER_ID);
-        
-        console.log(`Published post ${postId} for category ${category.name}`);
-        
-        // Add delay between posts to avoid rate limits
-        await new Promise(resolve => setTimeout(resolve, 5000));
-
-        // Optionally, save the post to Firestore
-        await addDoc(collection(db, 'posts'), {
-          content,
-          category: category.name,
-          userId: SYSTEM_USER_ID,
-          timestamp: serverTimestamp()
-        });
+        for (const item of content) {
+          const postId = await publishContent(item, SYSTEM_USER_ID);
+          // Delay between posts to prevent hitting rate limits
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
       } catch (error) {
-        console.error(`Error generating or publishing content for category ${category.name}:`, error);
+        console.error(`Error for category "${category.name}":`, error);
       }
     }
+    console.log('Daily content generation completed successfully.');
+    process.exit(0);
   } catch (error) {
     console.error('Error in daily content generation:', error);
     process.exit(1);
   }
 }
 
-// Schedule daily content generation (runs at 00:00 every day)
+// Schedule to run daily at midnight (00:00)
 cron.schedule('0 0 * * *', () => {
-  console.log('Running scheduled content generation...');
   generateDailyContent().catch(console.error);
 });
 
-// Also allow manual execution
+// Allow manual execution when run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  generateDailyContent().catch(console.error);
+  generateDailyContent().catch(console.error).finally(() => process.exit(0));
 }
