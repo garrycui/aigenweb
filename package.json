@@ -17,7 +17,10 @@
     "generate-content": "ts-node scripts/generateContent.ts"
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.1",
+    "@codemirror/theme-one-dark": "^6.1.2",
     "@stripe/stripe-js": "^5.6.0",
+    "@uiw/react-codemirror": "^4.21.21",
     "axios": "^1.7.9",
     "body-parser": "^1.20.3",
     "chart.js": "^4.4.8",
