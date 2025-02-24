@@ -1,6 +1,6 @@
-import { db } from './firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, or, and } from 'firebase/firestore';
 import OpenAI from 'openai';
+import { db } from './firebase';
+import { collection, addDoc, query, where, getDocs, orderBy, or, and, doc, updateDoc, increment } from 'firebase/firestore';
 import { getLatestAssessment } from './api';
 import axios from 'axios';
 
@@ -9,8 +9,7 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true
 });
 
-const UNSPLASH_ACCESS_KEY = import.meta.env.VITE_UNSPLASH_ACCESS_KEY;
-
+// Enhanced tutorial interface with new fields
 export interface Tutorial {
   id: string;
   userId: string;
@@ -23,8 +22,52 @@ export interface Tutorial {
   estimatedMinutes: number;
   createdAt: any;
   introImageUrl?: string;
+  isCodingTutorial: boolean;
+  sections: TutorialSection[];
+  resources: {
+    webLinks: WebResource[];
+    videos: VideoResource[];
+  };
+  quiz: QuizData;
 }
 
+interface TutorialSection {
+  id: string;
+  title: string;
+  content: string;
+  codeExample?: string;
+  language?: string;
+}
+
+interface WebResource {
+  title: string;
+  url: string;
+  description: string;
+  thumbnail?: string;
+}
+
+interface VideoResource {
+  title: string;
+  url: string;
+  description: string;
+  thumbnail: string;
+}
+
+interface QuizData {
+  questions: QuizQuestion[];
+  passingScore: number;
+}
+
+interface QuizQuestion {
+  id: number;
+  type: 'multiple-choice' | 'true-false' | 'fill-in-blank';
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+}
+
+// Tutorial categories
 export const TUTORIAL_CATEGORIES = [
   'AI Tools',
   'Productivity',
@@ -34,6 +77,7 @@ export const TUTORIAL_CATEGORIES = [
   'Career Development'
 ];
 
+// Tutorial prompt generator
 const generateTutorialPrompt = (query: string, mbtiType?: string, aiPreference?: string) => {
   return `
     Create a detailed, step-by-step tutorial about "${query}" for someone with MBTI type ${mbtiType || 'unknown'} 
@@ -58,104 +102,177 @@ const generateTutorialPrompt = (query: string, mbtiType?: string, aiPreference?:
     7. Troubleshooting guide
     8. Summary and next steps
 
-    Format the content using markdown.
+    Format the content using markdown with clear section headers (##).
     Make steps clear and actionable.
     Include specific examples where appropriate.
+    If code is involved, wrap it in markdown code blocks with language specification.
    
     Target a reading time of 10-15 minutes.
-
-    Include a markdown image placeholder at the end for the summary: ![Summary Image](GENERATE_IMAGE_SUMMARY)
-
-    Make the tutorial visually appealing and easy to follow, with clear formatting. Place an image at the end
-    to aid understanding. Ensure high-quality, in-depth explanations so users can truly learn the topic.
+    Make the tutorial visually appealing and easy to follow.
+    Ensure high-quality, in-depth explanations so users can truly learn the topic.
   `;
 };
 
-// 📌 **Extracts Key Points from Tutorial Content**
-const extractKeyPoints = (text: string, maxPoints: number = 3): string => {
-  const sentences = text.split('.').map(s => s.trim()).filter(s => s.length > 0);
-  return sentences.slice(0, maxPoints).join(', ');
+// Refined topic generation
+const refineTopic = async (query: string): Promise<string> => {
+  const prompt = `
+    Convert this broad topic into a specific, clear tutorial title.
+    Topic: "${query}"
+    Requirements:
+    - Be specific and actionable
+    - Focus on practical skills
+    - Use clear, professional language
+    - Keep it under 60 characters
+    Title:
+  `;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: 'You are a technical tutorial title generator.' },
+      { role: 'user', content: prompt }
+    ]
+  });
+
+  return completion.choices[0].message?.content?.trim() || query;
 };
 
-// Get image suggestions from Unsplash
-export const getImageSuggestions = async (query: string): Promise<string[]> => {
+// Function to determine the authoritative site using GPT-4o
+const determineSite = async (query: string): Promise<string> => {
   try {
-    const response = await axios.get(`https://api.unsplash.com/search/photos`, {
-      params: {
-        query,
-        per_page: 5,
-        client_id: UNSPLASH_ACCESS_KEY
-      }
+    const prompt = `Identify the most authoritative website for learning about "${query}". Provide only the domain name.`;
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o', // Utilizing GPT-4o model
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 10,
+      temperature: 0,
     });
 
-    return response.data.results.map((img: any) => img.urls.regular);
+    const domain = response.choices[0]?.message?.content?.trim();
+    console.log('Domain:', domain);
+    return domain || '';
   } catch (error) {
-    console.error('Error fetching images:', error);
+    console.error('Error determining site:', error);
+    return '';
+  }
+};
+
+// Fetch web resources using Google Custom Search API
+const fetchWebResources = async (query: string): Promise<WebResource[]> => {
+  try {
+    const site = await determineSite(query);
+    const params: any = {
+      key: import.meta.env.VITE_GOOGLE_API_KEY,
+      cx: import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID,
+      q: query,
+      num: 5,
+    };
+
+    if (site) {
+      params.siteSearch = site;
+    }
+
+    const response = await axios.get('https://www.googleapis.com/customsearch/v1', { params });
+    console.log('Web resources:', response.data);
+    if (!response.data.items) {
+      return [];
+    }
+
+    return response.data.items.map((item: any) => ({
+      title: item.title,
+      url: item.link,
+      description: item.snippet,
+      thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src,
+    }));
+  } catch (error) {
+    console.error('Error fetching web resources:', error);
     return [];
   }
 };
 
-async function getUnsplashImage(query: string): Promise<string> {
+// Fetch video resources using YouTube Data API
+const fetchVideoResources = async (query: string): Promise<VideoResource[]> => {
   try {
-    const images = await getImageSuggestions(query);
-    return images.length > 0 ? images[0] : '';
-  } catch (error) {
-    console.error('Error fetching Unsplash image:', error);
-    return ''; // Return an empty string if the request fails
-  }
-}
-
-async function replaceImagePlaceholder(body: string, query: string): Promise<string> {
-  const placeholderRegex = /!\[.*?\]\(GENERATE_IMAGE_SUMMARY\)/;
-  const match = body.match(placeholderRegex);
-  if (!match) return body;
-
-  try {
-    // 🔹 Extract key tutorial points to improve image prompt relevance
-    const keyPoints = extractKeyPoints(body, 3);
-    const detailedPrompt = `
-      Generate a **high-quality, informative** image for a tutorial on "${query}".
-      The image should **visually represent**:
-      - **Topic:** ${query}
-      - **Key points:** ${keyPoints}
-      - **Illustration type:** Clear, structured, visually engaging infographic
-      - **Target audience:** Professionals, students, and tech learners
-      - **Color scheme:** Modern, professional, visually appealing
-
-      Ensure the image is **directly related to the tutorial content** and provides **a clear, easy-to-understand summary**.
-    `;
-
-    // 🔹 Request OpenAI's DALL·E API to generate an image
-    const generatedImage = await openai.images.generate({
-      prompt: detailedPrompt,
-      size: '1024x1024',  // Ensures high-resolution image
-      style: 'natural',  // Requests a more visually accurate image
-      quality: 'hd'        // Ensures higher image quality
+    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      params: {
+        key: import.meta.env.VITE_YOUTUBE_API_KEY,
+        q: query,
+        part: 'snippet',
+        type: 'video',
+        maxResults: 3
+      }
     });
 
-    const imageUrl = generatedImage.data?.[0]?.url || '';
-
-    if (!imageUrl) {
-      console.warn('OpenAI image generation failed, falling back to Unsplash...');
-      const unsplashUrl = await getUnsplashImage(query);
-      return body.replace(placeholderRegex, `![Summary Image](${unsplashUrl})`);
-    }
-
-    return body.replace(placeholderRegex, `![Summary Image](${imageUrl})`);
+    return response.data.items.map((item: any) => ({
+      title: item.snippet.title,
+      url: `https://www.youtube.com/embed/${item.id.videoId}`,
+      description: item.snippet.description,
+      thumbnail: item.snippet.thumbnails.high.url
+    }));
   } catch (error) {
-    console.error('Error generating tutorial image:', error);
-    return body;
+    console.error('Error fetching video resources:', error);
+    return [];
   }
-}
+};
 
+// Generate quiz questions
+const generateQuiz = async (content: string): Promise<QuizData> => {
+  const prompt = `
+    Generate a quiz based on this tutorial content:
+    "${content}"
+    Requirements:
+    - Create 5 multiple-choice questions
+    - Each question should have 4 options
+    - Include explanations for correct answers
+    - Focus on key learning points
+    Format as JSON with structure:
+    {
+      "questions": [
+        {
+          "id": number,
+          "type": "multiple-choice",
+          "question": string,
+          "options": string[],
+          "correctAnswer": number,
+          "explanation": string
+        }
+      ],
+      "passingScore": number
+    }
+  `;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: 'You are a quiz generator for technical tutorials.' },
+      { role: 'user', content: prompt }
+    ]
+  });
+
+  try {
+    // Assume completion.choices[0].message?.content contains the ChatGPT response
+    let content = completion.choices[0].message?.content || '{"questions":[],"passingScore":70}';
+  
+    // Remove triple backticks and any surrounding whitespace
+    content = content.replace(/```json\s*([\s\S]*?)\s*```/, '$1').trim();
+  
+    // Parse the cleaned JSON string
+    return JSON.parse(content);
+  } catch (error) {
+    console.error('Error parsing quiz JSON:', error);
+    return { questions: [], passingScore: 70 };
+  }
+};
+
+// Enhanced tutorial generation
 export const generateTutorial = async (userId: string, query: string) => {
   try {
-    // Get user's assessment results for personalization
+    const refinedTitle = await refineTopic(query);
     const { data: assessment } = await getLatestAssessment(userId);
     const mbtiType = assessment?.mbti_type;
     const aiPreference = assessment?.ai_preference;
 
-    // Generate tutorial content using ChatGPT
+    // Generate main content
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -165,72 +282,61 @@ export const generateTutorial = async (userId: string, query: string) => {
         },
         {
           role: 'user',
-          content: generateTutorialPrompt(query, mbtiType, aiPreference)
+          content: generateTutorialPrompt(refinedTitle, mbtiType, aiPreference)
         }
       ]
     });
 
     const content = completion.choices[0].message?.content;
-    if (!content) {
-      throw new Error('Failed to generate tutorial content');
-    }
+    if (!content) throw new Error('Failed to generate tutorial content');
 
-    // Get Unsplash image for introduction
-    const introImageUrl = await getUnsplashImage(query);
+    // Parse content into sections
+    const sections = parseSections(content);
+    const isCodingTutorial = detectCodeContent(content);
 
-    // Parse the markdown content to extract title and body
-    const lines = content.split('\n');
-    const title = lines[0].replace(/^#\s+/, '');
-    const body = lines.slice(1).join('\n');
-    const finalBody = await replaceImagePlaceholder(body, query);
+    // Fetch resources
+    const [webResources, videoResources] = await Promise.all([
+      fetchWebResources(refinedTitle),
+      fetchVideoResources(refinedTitle)
+    ]);
 
-    // Add extra space between sections
-    const formattedBody = finalBody.replace(/(\n\s*\n)/g, '\n\n\n');
+    // Generate quiz
+    const quiz = await generateQuiz(content);
 
-    // Determine category based on content
-    const categoryCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `Return ONLY one of the following categories exactly (without any additional text): ${TUTORIAL_CATEGORIES.join(', ')}.`
-        },
-        {
-          role: 'user',
-          content: `Title: ${title}\n\nContent: ${content}`
-        }
-      ]
-    });
-    let categoryResponse = (categoryCompletion.choices?.[0]?.message?.content ?? '').trim();
-    if (!TUTORIAL_CATEGORIES.includes(categoryResponse)) {
-      // Attempt to find one of the predefined categories in the response
-      categoryResponse = TUTORIAL_CATEGORIES.find(cat => categoryResponse.includes(cat)) || TUTORIAL_CATEGORIES[0];
-    }
-    const category = categoryResponse;
-
-    // Save tutorial to Firestore
+    //properly await category determination
+    const category = await determineCategory(refinedTitle, content);
+    // Save to Firestore
     const tutorialRef = await addDoc(collection(db, 'tutorials'), {
-      title,
-      content: formattedBody,
+      title: refinedTitle,
+      content,
+      sections,
+      isCodingTutorial,
       category,
-      difficulty: 'intermediate',
-      tags: [category, query, mbtiType || 'General'],
-      estimatedMinutes: Math.ceil(formattedBody.split(' ').length / 200),
-      createdAt: new Date(), // <-- changed from serverTimestamp() to new Date()
+      difficulty: determineDifficulty(content),
+      resources: {
+        webLinks: webResources,
+        videos: videoResources
+      },
+      quiz,
+      estimatedMinutes: Math.ceil(content.split(' ').length / 200),
+      createdAt: new Date(),
       likes: 0,
       views: 0,
       userId,
       mbtiType,
-      aiPreference,
-      introImageUrl
+      aiPreference
     });
 
     return {
       id: tutorialRef.id,
-      title,
-      content: formattedBody,
-      category,
-      introImageUrl
+      title: refinedTitle,
+      content,
+      sections,
+      isCodingTutorial,
+      resources: {
+        webLinks: webResources,
+        videos: videoResources
+      }
     };
   } catch (error) {
     console.error('Error generating tutorial:', error);
@@ -238,6 +344,86 @@ export const generateTutorial = async (userId: string, query: string) => {
   }
 };
 
+// Helper functions
+const parseSections = (content: string): TutorialSection[] => {
+  const sections: TutorialSection[] = [];
+  const lines = content.split('\n');
+  let currentSection: Partial<TutorialSection> = {};
+
+  lines.forEach(line => {
+    if (line.startsWith('## ')) {
+      if (currentSection.title) {
+        sections.push(currentSection as TutorialSection);
+      }
+      currentSection = {
+        id: Date.now().toString(),
+        title: line.replace('## ', '').trim(),
+        content: ''
+      };
+    } else if (line.includes('```')) {
+      const language = line.replace('```', '').trim();
+      if (language && !currentSection.language) {
+        currentSection.language = language;
+        currentSection.codeExample = '';
+      } else if (currentSection.codeExample !== undefined) {
+        currentSection.content += currentSection.codeExample + '\n';
+        delete currentSection.codeExample;
+      }
+    } else if (currentSection.codeExample !== undefined) {
+      currentSection.codeExample += line + '\n';
+    } else if (currentSection.title) {
+      currentSection.content += line + '\n';
+    }
+  });
+
+  if (currentSection.title) {
+    sections.push(currentSection as TutorialSection);
+  }
+
+  return sections;
+};
+
+const detectCodeContent = (content: string): boolean => {
+  return content.includes('```') || 
+         content.includes('function') || 
+         content.includes('class') || 
+         content.includes('const') || 
+         content.includes('let');
+};
+
+// Determine category based on content
+const determineCategory = async (title: string, content: string): Promise<string> => {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `Return ONLY one of the following categories exactly (without any additional text): ${TUTORIAL_CATEGORIES.join(', ')}.`
+      },
+      {
+        role: 'user',
+        content: `Title: ${title}\n\nContent: ${content}`
+      }
+    ]
+  });
+
+  let categoryResponse = (completion.choices?.[0]?.message?.content ?? '').trim();
+  console.log('Category response from OpenAI:', categoryResponse);
+  if (!TUTORIAL_CATEGORIES.includes(categoryResponse)) {
+    console.log('Attempting to find category in response');
+    // Attempt to find one of the predefined categories in the response
+    categoryResponse = TUTORIAL_CATEGORIES.find(cat => categoryResponse.includes(cat)) || TUTORIAL_CATEGORIES[0];
+  }
+  return categoryResponse;
+}
+
+// Determine difficulty based on content
+const determineDifficulty = (content: string): string => {
+  // Implementation based on content complexity
+  return 'intermediate'; // Placeholder
+};
+
+// Get recommended tutorials based on user preferences and completed tutorials
 export const getRecommendedTutorials = async (userId: string, completedTutorialIds: string[], limit = 3) => {
   try {
     const tutorialsRef = collection(db, 'tutorials');
@@ -273,11 +459,16 @@ export const getRecommendedTutorials = async (userId: string, completedTutorialI
       id: doc.id,
       ...doc.data()
     })) as Tutorial[];
+    
+    // Filter out completed tutorials
     tutorials = tutorials.filter(t => !completedTutorialIds.includes(t.id));
+    
+    // Sort by likes and creation date
     tutorials.sort((a, b) => {
       if (b.likes !== a.likes) return b.likes - a.likes;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
+    
     return tutorials.slice(0, limit);
   } catch (error) {
     console.error('Error getting recommended tutorials:', error);
@@ -285,7 +476,7 @@ export const getRecommendedTutorials = async (userId: string, completedTutorialI
   }
 };
 
-// Updated getTutorials function without using 'offset'
+// Get tutorials with filtering and pagination
 export const getTutorials = async (
   page: number = 1,
   limitVal: number = 10,
@@ -298,15 +489,17 @@ export const getTutorials = async (
   try {
     const tutorialsRef = collection(db, 'tutorials');
     const constraints: any[] = [];
-    // Remove Firestore filter for category; filter client‑side instead
+    
+    // Add filters
     if (difficulty) {
       constraints.push(where('difficulty', '==', difficulty));
     }
     constraints.push(orderBy(sortField, sortDirection));
+    
     const tutorialQuery = query(tutorialsRef, ...constraints);
     const snapshot = await getDocs(tutorialQuery);
     
-    // Manually paginate in-memory
+    // Manual pagination
     const lowerBound = (page - 1) * limitVal;
     const upperBound = lowerBound + limitVal;
     const docs = snapshot.docs.slice(lowerBound, upperBound);
@@ -316,7 +509,7 @@ export const getTutorials = async (
       ...doc.data()
     })) as Tutorial[];
 
-    // Client-side filtering for search text, if provided
+    // Client-side filtering for search and category
     if (searchQuery) {
       const queryLower = searchQuery.toLowerCase();
       tutorials = tutorials.filter(t =>
@@ -325,11 +518,12 @@ export const getTutorials = async (
         t.category.toLowerCase().includes(queryLower)
       );
     }
-    // Client-side filtering for category, case-insensitive
+
     if (category) {
       const catLower = category.toLowerCase();
       tutorials = tutorials.filter(t => t.category.toLowerCase() === catLower);
     }
+
     return tutorials;
   } catch (error) {
     console.error('Error getting tutorials:', error);
