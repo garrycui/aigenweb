@@ -104,7 +104,7 @@ const TutorialProgress: React.FC<TutorialProgressProps> = ({
           {tutorial.resources.webLinks.length > 0 && (
             <div className="p-3 bg-blue-50 rounded-lg">
               <span className="text-sm font-medium text-blue-700">
-                {tutorial.resources.webLinks.length} Additional Resources
+                {tutorial.resources.webLinks.length} Web Tutorials
               </span>
             </div>
           )}

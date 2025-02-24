@@ -137,53 +137,37 @@ const refineTopic = async (query: string): Promise<string> => {
   return completion.choices[0].message?.content?.trim() || query;
 };
 
-// Function to determine the authoritative site using GPT-4o
-const determineSite = async (query: string): Promise<string> => {
-  try {
-    const prompt = `Identify the most authoritative website for learning about "${query}". Provide only the domain name.`;
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o', // Utilizing GPT-4o model
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 10,
-      temperature: 0,
-    });
-
-    const domain = response.choices[0]?.message?.content?.trim();
-    console.log('Domain:', domain);
-    return domain || '';
-  } catch (error) {
-    console.error('Error determining site:', error);
-    return '';
-  }
-};
-
 // Fetch web resources using Google Custom Search API
 const fetchWebResources = async (query: string): Promise<WebResource[]> => {
   try {
-    const site = await determineSite(query);
+    console.log('query:', query); // Log the query
+    const sanitizedQuery = query.replace(/^["'](.*)["']$/, '$1');
     const params: any = {
       key: import.meta.env.VITE_GOOGLE_API_KEY,
       cx: import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID,
-      q: query,
+      q: sanitizedQuery,
       num: 5,
     };
-
-    if (site) {
-      params.siteSearch = site;
-    }
+    console.log('Google Custom Search API params:', params); // Log the API parameters
 
     const response = await axios.get('https://www.googleapis.com/customsearch/v1', { params });
-    console.log('Web resources:', response.data);
+    console.log('Google Custom Search API response:', response.data); // Log the API response
+
     if (!response.data.items) {
+      console.log('No items found in the response');
       return [];
     }
 
-    return response.data.items.map((item: any) => ({
-      title: item.title,
-      url: item.link,
-      description: item.snippet,
-      thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src,
-    }));
+    return response.data.items.map((item: any) => {
+      const resource = {
+        title: item.title,
+        url: item.link,
+        description: item.snippet,
+        thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src,
+      };
+      console.log('Resource:', resource); // Log each resource
+      return resource;
+    });
   } catch (error) {
     console.error('Error fetching web resources:', error);
     return [];
@@ -199,6 +183,8 @@ const fetchVideoResources = async (query: string): Promise<VideoResource[]> => {
         q: query,
         part: 'snippet',
         type: 'video',
+        videoEmbeddable: true,
+        videoDefinition: 'high',
         maxResults: 3
       }
     });
@@ -269,8 +255,8 @@ export const generateTutorial = async (userId: string, query: string) => {
   try {
     const refinedTitle = await refineTopic(query);
     const { data: assessment } = await getLatestAssessment(userId);
-    const mbtiType = assessment?.mbti_type;
-    const aiPreference = assessment?.ai_preference;
+    const mbtiType = assessment?.mbti_type || '';
+    const aiPreference = assessment?.ai_preference || '';
 
     // Generate main content
     const completion = await openai.chat.completions.create({
@@ -303,21 +289,23 @@ export const generateTutorial = async (userId: string, query: string) => {
     // Generate quiz
     const quiz = await generateQuiz(content);
 
-    //properly await category determination
+    // Properly await category determination
     const category = await determineCategory(refinedTitle, content);
-    // Save to Firestore
-    const tutorialRef = await addDoc(collection(db, 'tutorials'), {
+    const difficulty = determineDifficulty(content);
+
+    // Ensure all fields have valid values
+    const tutorialData = {
       title: refinedTitle,
       content,
       sections,
       isCodingTutorial,
       category,
-      difficulty: determineDifficulty(content),
+      difficulty,
       resources: {
-        webLinks: webResources,
-        videos: videoResources
+        webLinks: webResources || [],
+        videos: videoResources || []
       },
-      quiz,
+      quiz: quiz || { questions: [], passingScore: 70 },
       estimatedMinutes: Math.ceil(content.split(' ').length / 200),
       createdAt: new Date(),
       likes: 0,
@@ -325,18 +313,16 @@ export const generateTutorial = async (userId: string, query: string) => {
       userId,
       mbtiType,
       aiPreference
-    });
+    };
+
+    console.log('Tutorial data:', tutorialData); // Log the tutorial data
+
+    // Save to Firestore
+    const tutorialRef = await addDoc(collection(db, 'tutorials'), tutorialData);
 
     return {
       id: tutorialRef.id,
-      title: refinedTitle,
-      content,
-      sections,
-      isCodingTutorial,
-      resources: {
-        webLinks: webResources,
-        videos: videoResources
-      }
+      ...tutorialData
     };
   } catch (error) {
     console.error('Error generating tutorial:', error);

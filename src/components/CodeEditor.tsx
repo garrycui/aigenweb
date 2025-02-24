@@ -1,24 +1,41 @@
 import { useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { sql } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { Play, Copy, Check } from 'lucide-react';
+import { Play, Copy, Check, X, Maximize2, Minimize2 } from 'lucide-react';
 
 interface CodeEditorProps {
   initialCode?: string;
   language?: string;
   readOnly?: boolean;
+  onRun?: (code: string) => void;
+  onClose?: () => void;
 }
+
+const languageMap: { [key: string]: any } = {
+  javascript,
+  python,
+  html,
+  css,
+  sql,
+};
 
 const CodeEditor: React.FC<CodeEditorProps> = ({
   initialCode = '',
   language = 'javascript',
-  readOnly = false
+  readOnly = false,
+  onRun,
+  onClose
 }) => {
   const [code, setCode] = useState(initialCode);
   const [output, setOutput] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(code);
@@ -27,6 +44,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   };
 
   const runCode = () => {
+    if (onRun) {
+      onRun(code);
+      return;
+    }
+
     setIsRunning(true);
     try {
       // Create a safe evaluation environment
@@ -62,10 +84,16 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     setIsRunning(false);
   };
 
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+
   return (
-    <div className="bg-gray-900 rounded-lg overflow-hidden">
+    <div className={`bg-gray-900 rounded-lg overflow-hidden ${
+      isFullscreen ? 'fixed inset-0 z-50' : ''
+    }`}>
       <div className="flex items-center justify-between p-2 border-b border-gray-700">
-        <span className="text-gray-400 text-sm">JavaScript</span>
+        <span className="text-gray-400 text-sm capitalize">{language}</span>
         <div className="flex items-center space-x-2">
           <button
             onClick={handleCopy}
@@ -90,14 +118,34 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
               <Play className="h-4 w-4" />
             </button>
           )}
+          <button
+            onClick={toggleFullscreen}
+            className="p-1.5 text-gray-400 hover:text-white rounded transition-colors"
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-white rounded transition-colors"
+              title="Close editor"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
       <CodeMirror
         value={code}
-        height="200px"
+        height={isFullscreen ? "calc(100vh - 120px)" : "300px"}
         theme={oneDark}
-        extensions={[javascript()]}
+        extensions={[languageMap[language]()]}
         onChange={(value) => setCode(value)}
         readOnly={readOnly}
         basicSetup={{
