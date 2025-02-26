@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { processChatMessage } from '../lib/chat';
-import TutorialCard from './TutorialCard'; // Import the TutorialCard component
+import { processChatMessage, getChatHistory } from '../lib/chat';
+import AIChatCard from './AIChatCard';
 
 const AIChat = () => {
   const { user } = useAuth();
@@ -12,11 +12,38 @@ const AIChat = () => {
     role: 'user' | 'assistant';
     sentiment?: 'positive' | 'negative' | 'neutral';
     timestamp?: string;
-    recommendations?: { id: string; title: string; content: string }[];
+    recommendations?: { id: string; title: string; content: string; type?: 'post' | 'tutorial' }[];
   }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState('min-h-[60px]');
+  const [isThinking, setIsThinking] = useState(false);
+
+  // Load chat history when component mounts
+  useEffect(() => {
+    if (user) {
+      setIsLoading(true);
+      getChatHistory(user.id)
+        .then(history => {
+          if (history.length > 0) {
+            setContainerHeight('h-[400px]');
+            const formattedMessages = history.map(msg => ({
+              content: msg.content.replace(/\n/g, '<br/>'),
+              role: msg.role,
+              sentiment: msg.sentiment,
+              timestamp: msg.timestamp
+            }));
+            setMessages(formattedMessages);
+          }
+        })
+        .catch(error => {
+          console.error('Error loading chat history:', error);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    }
+  }, [user]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -39,7 +66,11 @@ const AIChat = () => {
     setInput('');
     setIsLoading(true);
 
+    // Show user message immediately
     setMessages(prev => [...prev, { content: message, role: 'user', timestamp }]);
+    
+    // Add a small delay and show thinking indicator to make it feel more human
+    setTimeout(() => setIsThinking(true), 500);
 
     try {
       const result = await processChatMessage(user.id, message);
@@ -70,6 +101,7 @@ const AIChat = () => {
       ]);
     } finally {
       setIsLoading(false);
+      setIsThinking(false);
     }
   };
 
@@ -82,6 +114,12 @@ const AIChat = () => {
     }
   };
 
+  // Handler for content card clicks
+  const handleContentClick = (id: string, type: 'post' | 'tutorial') => {
+    const path = type === 'post' ? `/forum/${id}` : `/tutorials/${id}`;
+    window.location.href = path;
+  };
+
   return (
     <div className={`flex flex-col bg-gray-50 rounded-lg transition-all duration-300 ${containerHeight}`}>
       {/* Chat Display */}
@@ -89,6 +127,36 @@ const AIChat = () => {
         ref={chatContainerRef}
         className="flex-1 p-4 overflow-y-auto space-y-4"
       >
+        {/* Welcome message when no messages */}
+        {messages.length === 0 && !isLoading && (
+          <div className="flex justify-center items-center h-full">
+            <div className="text-center p-6 rounded-lg bg-white shadow-sm border border-gray-200">
+              <h3 className="font-medium text-gray-800 mb-2">Welcome! I'm here to help you.</h3>
+              <p className="text-gray-600 text-sm mb-4">How are you feeling about AI technology today?</p>
+              <div className="flex justify-center space-x-2">
+                <button 
+                  onClick={() => setInput("I'm excited about AI possibilities!")}
+                  className="px-3 py-2 bg-green-100 text-green-700 rounded-lg text-sm hover:bg-green-200"
+                >
+                  Excited
+                </button>
+                <button 
+                  onClick={() => setInput("I'm a bit uncertain about AI changes.")}
+                  className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200"
+                >
+                  Uncertain
+                </button>
+                <button 
+                  onClick={() => setInput("I want to learn more about AI.")}
+                  className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm hover:bg-purple-200"
+                >
+                  Curious
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {messages.map((message, index) => (
           <div 
             key={index} 
@@ -103,12 +171,17 @@ const AIChat = () => {
               {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
             </span>
             {message.recommendations && message.recommendations.length > 0 && (
-              <div className="mt-4 space-y-4">
+              <div className="mt-4 space-y-4 w-full max-w-[95%]">
                 {message.recommendations.map(rec => (
-                  <TutorialCard
+                  <AIChatCard
                     key={rec.id}
-                    tutorial={rec}
-                    onClick={() => window.location.href = `/${rec.id}`}
+                    item={{
+                      id: rec.id,
+                      title: rec.title,
+                      content: rec.content,
+                      type: rec.type || 'tutorial' // Default to tutorial if type not specified
+                    }}
+                    onClick={handleContentClick}
                   />
                 ))}
               </div>
@@ -116,8 +189,8 @@ const AIChat = () => {
           </div>
         ))}
 
-        {/* Animated Typing Indicator */}
-        {isLoading && (
+        {/* Enhanced typing indicator with "thinking" dots */}
+        {(isLoading || isThinking) && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg p-4">
               <div className="flex space-x-2">

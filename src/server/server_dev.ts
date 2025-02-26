@@ -198,7 +198,6 @@ app.post(
   express.raw({ type: 'application/json' }),
   async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    const body = req.body;
 
     if (!sig) {
       console.error('Stripe signature is missing');

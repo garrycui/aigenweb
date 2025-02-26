@@ -1,9 +1,9 @@
 import React from 'react';
 import { Book, Clock, ThumbsUp, Eye, CheckCircle, Code } from 'lucide-react';
-import { Tutorial } from '../lib/tutorials';
+import { Tutorial, TutorialPreview } from '../lib/tutorials';
 
 interface TutorialCardProps {
-  tutorial: Tutorial;
+  tutorial: Tutorial | TutorialPreview;
   onClick: (tutorialId: string) => void;
   isCompleted?: boolean;
 }

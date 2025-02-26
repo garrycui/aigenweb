@@ -83,22 +83,53 @@ export const saveChatMessage = async (userId: string, message: string, role: 'us
 };
 
 /**
- * Retrieve chat history from Firestore.
+ * Retrieve paginated chat history from Firestore.
  */
-export const getChatHistory = async (userId: string): Promise<ChatMessage[]> => {
+export const getChatHistory = async (
+  userId: string, 
+  limit: number = 20, 
+  startAfter?: string
+): Promise<ChatMessage[]> => {
   console.log('Retrieving chat history for user:', userId);
   if (!userId) throw new Error('User ID is required');
+  
   const chatRef = doc(db, 'chatHistory', userId);
   const chatDoc = await getDoc(chatRef);
-  const chatHistory = chatDoc.exists() ? (chatDoc.data().messages || []) : [];
-  console.log('Chat history retrieved:', chatHistory);
-  return chatHistory;
+  
+  if (!chatDoc.exists()) return [];
+  
+  const allMessages = chatDoc.data().messages || [];
+  
+  // Sort messages by timestamp (newest first)
+  const sortedMessages = [...allMessages].sort((a, b) => {
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+  
+  // Apply pagination if needed
+  let paginatedMessages = sortedMessages;
+  if (startAfter) {
+    const startIndex = sortedMessages.findIndex(msg => msg.timestamp === startAfter);
+    if (startIndex !== -1) {
+      paginatedMessages = sortedMessages.slice(startIndex + 1, startIndex + 1 + limit);
+    }
+  } else {
+    paginatedMessages = sortedMessages.slice(0, limit);
+  }
+  
+  // Return messages in chronological order
+  return paginatedMessages.reverse();
 };
 
 /**
  * Fetch cached tutorials and posts from Firestore with Fuse.js search.
  */
-async function fetchCombinedContent(searchPhrase: string): Promise<{ id: string; title: string; content: string }[]> {
+// Update return type to include content type
+async function fetchCombinedContent(searchPhrase: string): Promise<Array<{ 
+  id: string; 
+  title: string; 
+  content: string;
+  type: 'post' | 'tutorial';
+}>>{
   console.log('Fetching combined content for search phrase:', searchPhrase);
   const now = Date.now();
   
@@ -122,38 +153,73 @@ async function fetchCombinedContent(searchPhrase: string): Promise<{ id: string;
       content: doc.data().content.toString()
     }));
 
-    fuse = new Fuse([...cachedPosts, ...cachedTutorials], {
-      keys: ['title'],
-      threshold: 0.5
-    });
+    // Include both types in search but maintain separate caches
+    fuse = new Fuse(
+      [...cachedPosts.map(post => ({...post, type: 'post'})), 
+       ...cachedTutorials.map(tutorial => ({...tutorial, type: 'tutorial'}))], 
+      {
+        keys: ['title'],
+        threshold: 0.5
+      }
+    );
 
     lastCacheUpdate = now;
     console.log('Cache updated.');
   }
 
   if (!fuse) {
-    fuse = new Fuse([...cachedPosts, ...cachedTutorials], {
-      keys: ['title'],
-      threshold: 0.5
-    });
+    fuse = new Fuse(
+      [...cachedPosts.map(post => ({...post, type: 'post'})), 
+       ...cachedTutorials.map(tutorial => ({...tutorial, type: 'tutorial'}))], 
+      {
+        keys: ['title'],
+        threshold: 0.5
+      }
+    );
   }
 
-  console.log('Cached posts:', cachedPosts);
-  console.log('Cached tutorials:', cachedTutorials);
-
-  const results = fuse.search(searchPhrase).slice(0, 3).map(result => result.item);
+  const results = fuse.search(searchPhrase).slice(0, 3).map(result => result.item as { 
+    id: string; 
+    title: string; 
+    content: string;
+    type: 'post' | 'tutorial';
+  });
   console.log('Search results:', results);
   return results;
 }
 
 /**
- * Determine if a message has a learning intent.
+ * Determine if a message has a learning intent or could benefit from resources.
  */
-const determineLearningIntent = async (message: string): Promise<"learning" | "other"> => {
+const determineLearningIntent = async (message: string, chatHistory: ChatMessage[] = []): Promise<"learning" | "other"> => {
   console.log('Determining learning intent for message:', message);
+  
+  // Get last few messages to establish context, could add to the lower context
+  const recentMessages = chatHistory.slice(-5);
+  const conversationContext = recentMessages.map(msg => msg.content).join(' ');
+  
   const lower = message.toLowerCase();
-  const learningKeywords = ['tutorial', 'guide', 'learn', 'explain', 'how to', 'show me'];
-  const intent = learningKeywords.some(keyword => lower.includes(keyword)) ? "learning" : "other";
+  
+  // Expanded keywords for learning intent
+  const learningKeywords = [
+    'tutorial', 'guide', 'learn', 'explain', 'how to', 'show me',
+    'understand', 'resource', 'teach', 'help me with', 'example',
+    'struggle with', 'difficulty', 'confused about', 'more information',
+    'guidance', 'advice', 'best practice', 'recommend', 'suggestion'
+  ];
+  
+  // Check if current message contains learning keywords
+  const messageHasIntent = learningKeywords.some(keyword => lower.includes(keyword));
+  
+  // Check if the conversation context suggests a learning opportunity
+  const contextHasLearningClues = 
+    lower.includes('improve') || 
+    lower.includes('better') || 
+    lower.includes('want to') ||
+    lower.includes('help me') ||
+    lower.includes('not sure how');
+    
+  const intent = (messageHasIntent || contextHasLearningClues) ? "learning" : "other";
   console.log('Learning intent:', intent);
   return intent;
 };
@@ -180,7 +246,7 @@ export const processChatMessage = async (userId: string, message: string) => {
     const { sentiment } = await saveChatMessage(userId, message, 'user');
 
     // Step 1: Generate AI response and send it
-    const aiResponse = await generateChatResponse(message, userId, chatHistory, mbtiType, aiPreference);
+    const aiResponse = await generateChatResponse(message, chatHistory, mbtiType, aiPreference);
     if (!aiResponse || !aiResponse.response) throw new Error('Failed to generate chat response');
 
     console.log('AI response:', aiResponse.response);
@@ -194,8 +260,8 @@ export const processChatMessage = async (userId: string, message: string) => {
       recommendations: []
     };
 
-    // Check if the user has a learning intent
-    const intent = await determineLearningIntent(message);
+    // Check if the user has a learning intent (now with chat history)
+    const intent = await determineLearningIntent(message, chatHistory);
     console.log('User intent:', intent);
 
     if (intent === 'learning') {

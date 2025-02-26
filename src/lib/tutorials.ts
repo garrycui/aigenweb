@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { db } from './firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, or, and, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, or, and } from 'firebase/firestore';
 import { getLatestAssessment } from './api';
 import axios from 'axios';
 
@@ -30,6 +30,50 @@ export interface Tutorial {
   };
   quiz: QuizData;
 }
+
+export interface TutorialPreview {
+  id: string;
+  title: string;
+  content: string;
+  userId?: string;
+  category?: string;
+  difficulty?: string;
+  likes?: number;
+  views?: number;
+  estimatedMinutes?: number;
+  introImageUrl?: string;
+  isCodingTutorial?: boolean;
+  sections?: any[];
+  resources?: {
+    webLinks: any[];
+    videos: any[];
+  };
+  quiz?: any;
+}
+
+export const adaptRecommendationToTutorial = (rec: {
+  id: string;
+  title: string;
+  content: string;
+}): TutorialPreview => {
+  return {
+    id: rec.id,
+    title: rec.title,
+    content: rec.content,
+    userId: 'system',
+    category: 'General',
+    difficulty: 'Beginner',
+    likes: 0,
+    views: 0,
+    estimatedMinutes: 5,
+    isCodingTutorial: false,
+    sections: [],
+    resources: {
+      webLinks: [],
+      videos: []
+    }
+  };
+};
 
 interface TutorialSection {
   id: string;
