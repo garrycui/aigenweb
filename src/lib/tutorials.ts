@@ -77,52 +77,168 @@ export const TUTORIAL_CATEGORIES = [
   'Career Development'
 ];
 
-// Tutorial prompt generator
-const generateTutorialPrompt = (query: string, mbtiType?: string, aiPreference?: string) => {
+// Tutorial prompt generator based on difficulty level
+const generateTutorialPrompt = (query: string, difficulty: string, mbtiType?: string, aiPreference?: string) => {
+  const difficultyGuides = {
+    beginner: {
+      style: 'Use simple language and explain every concept from scratch. Break down complex terms.',
+      depth: 'Focus on foundational concepts and basic practical applications.',
+      examples: 'Provide many step-by-step examples with detailed explanations.',
+      assumptions: 'Assume no prior knowledge of the subject.',
+      codeStyle: 'Include basic code examples with extensive comments explaining each line.'
+    },
+    intermediate: {
+      style: 'Use professional terminology with clear explanations. Balance theory and practice.',
+      depth: 'Cover moderately complex concepts and real-world applications.',
+      examples: 'Provide practical examples that build upon basic knowledge.',
+      assumptions: 'Assume basic understanding of the subject.',
+      codeStyle: 'Include moderate complexity code examples with focused comments on key concepts.'
+    },
+    advanced: {
+      style: 'Use technical language and industry-standard terminology.',
+      depth: 'Explore advanced concepts, edge cases, and optimizations.',
+      examples: 'Provide complex, real-world examples and best practices.',
+      assumptions: 'Assume strong foundational knowledge.',
+      codeStyle: 'Include advanced code examples with comments on sophisticated techniques.'
+    }
+  };
+
+  const guide = difficultyGuides[difficulty as keyof typeof difficultyGuides];
+
   return `
-    Create a detailed, step-by-step tutorial about "${query}" for someone with MBTI type ${mbtiType || 'unknown'} 
+    Create a detailed, ${difficulty}-level tutorial about "${query}" for someone with MBTI type ${mbtiType || 'unknown'} 
     (Do Not Explicitly Mention MBTI, but Apply in Content Approach)
-    - **For strategic learners:** Include structured explanations and frameworks.
-    - **For conceptual learners:** Use real-world applications and storytelling.
-    - **For hands-on learners:** Provide interactive examples and step-by-step exercises.
-    - **For impact-driven individuals:** Highlight social and professional benefits.
     who is ${aiPreference || 'learning about'} AI.
-    - **Enthusiastic Learners:** Provide deeper insights and encourage experimentation.
-    - **Optimistic Learners:** Emphasize AI's positive impact on daily life.
-    - **Cautious Learners:** Offer balanced perspectives with safety best practices.
-    - **Resistant Learners:** Focus on demystifying AI and building trust. 
+
+    Writing Style:
+    ${guide.style}
+
+    Content Depth:
+    ${guide.depth}
+
+    Examples Approach:
+    ${guide.examples}
+
+    Knowledge Assumptions:
+    ${guide.assumptions}
+
+    Code Examples:
+    ${guide.codeStyle}
 
     The tutorial should include:
-    1. A clear, engaging title
+    1. A clear, engaging title appropriate for ${difficulty} level
     2. Brief introduction explaining the importance/relevance
-    3. Prerequisites or required tools
+    3. Prerequisites or required tools (aligned with ${difficulty} level)
     4. Step-by-step instructions with detailed explanations
     5. Best practices and tips
     6. Common pitfalls to avoid
     7. Troubleshooting guide
-    8. Summary and next steps
+    8. Summary and next steps for further learning
 
     Format the content using markdown with clear section headers (##).
     Make steps clear and actionable.
     Include specific examples where appropriate.
     If code is involved, wrap it in markdown code blocks with language specification.
    
-    Target a reading time of 10-15 minutes.
-    Make the tutorial visually appealing and easy to follow.
-    Ensure high-quality, in-depth explanations so users can truly learn the topic.
+    Target a reading time of:
+    - Beginner: 15-20 minutes
+    - Intermediate: 12-15 minutes
+    - Advanced: 10-12 minutes
+
+    Make the tutorial visually appealing and easy to follow while maintaining the appropriate difficulty level.
+    Ensure high-quality, in-depth explanations that match the selected difficulty level.
   `;
 };
 
-// Refined topic generation
-const refineTopic = async (query: string): Promise<string> => {
+// Enhanced tutorial generation
+export const generateTutorial = async (userId: string, query: string, difficulty: string) => {
+  try {
+    const refinedTitle = await refineTopic(query, difficulty);
+    const { data: assessment } = await getLatestAssessment(userId);
+    const mbtiType = assessment?.mbti_type || '';
+    const aiPreference = assessment?.ai_preference || '';
+
+    // Generate main content with difficulty level
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert AI adaptation coach creating tutorials.'
+        },
+        {
+          role: 'user',
+          content: generateTutorialPrompt(refinedTitle, difficulty, mbtiType, aiPreference)
+        }
+      ]
+    });
+
+    const content = completion.choices[0].message?.content;
+    if (!content) throw new Error('Failed to generate tutorial content');
+
+    // Parse content into sections
+    const sections = parseSections(content);
+    const isCodingTutorial = detectCodeContent(content);
+
+    // Fetch resources
+    const [webResources, videoResources] = await Promise.all([
+      fetchWebResources(refinedTitle),
+      fetchVideoResources(refinedTitle)
+    ]);
+
+    // Generate quiz
+    const quiz = await generateQuiz(content);
+
+    // Determine category
+    const category = await determineCategory(refinedTitle, content);
+
+    // Ensure all fields have valid values
+    const tutorialData = {
+      title: refinedTitle,
+      content,
+      sections,
+      isCodingTutorial,
+      category,
+      difficulty,
+      resources: {
+        webLinks: webResources || [],
+        videos: videoResources || []
+      },
+      quiz: quiz || { questions: [], passingScore: 70 },
+      estimatedMinutes: Math.ceil(content.split(' ').length / 200),
+      createdAt: new Date(),
+      likes: 0,
+      views: 0,
+      userId,
+      mbtiType,
+      aiPreference
+    };
+
+    // Save to Firestore
+    const tutorialRef = await addDoc(collection(db, 'tutorials'), tutorialData);
+
+    return {
+      id: tutorialRef.id,
+      ...tutorialData
+    };
+  } catch (error) {
+    console.error('Error generating tutorial:', error);
+    throw error;
+  }
+};
+
+// Refined topic generation with difficulty consideration
+const refineTopic = async (query: string, difficulty: string): Promise<string> => {
   const prompt = `
     Convert this broad topic into a specific, clear tutorial title.
     Topic: "${query}"
+    Difficulty Level: ${difficulty}
     Requirements:
     - Be specific and actionable
     - Focus on practical skills
     - Use clear, professional language
     - Keep it under 60 characters
+    - Match the ${difficulty} difficulty level
     Title:
   `;
 
@@ -140,7 +256,7 @@ const refineTopic = async (query: string): Promise<string> => {
 // Fetch web resources using Google Custom Search API
 const fetchWebResources = async (query: string): Promise<WebResource[]> => {
   try {
-    console.log('query:', query); // Log the query
+    console.log('query:', query);
     const sanitizedQuery = query.replace(/^["'](.*)["']$/, '$1');
     const params: any = {
       key: import.meta.env.VITE_GOOGLE_API_KEY,
@@ -148,10 +264,10 @@ const fetchWebResources = async (query: string): Promise<WebResource[]> => {
       q: sanitizedQuery,
       num: 5,
     };
-    console.log('Google Custom Search API params:', params); // Log the API parameters
+    console.log('Google Custom Search API params:', params);
 
     const response = await axios.get('https://www.googleapis.com/customsearch/v1', { params });
-    console.log('Google Custom Search API response:', response.data); // Log the API response
+    console.log('Google Custom Search API response:', response.data);
 
     if (!response.data.items) {
       console.log('No items found in the response');
@@ -165,7 +281,7 @@ const fetchWebResources = async (query: string): Promise<WebResource[]> => {
         description: item.snippet,
         thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src,
       };
-      console.log('Resource:', resource); // Log each resource
+      console.log('Resource:', resource);
       return resource;
     });
   } catch (error) {
@@ -236,97 +352,12 @@ const generateQuiz = async (content: string): Promise<QuizData> => {
   });
 
   try {
-    // Assume completion.choices[0].message?.content contains the ChatGPT response
     let content = completion.choices[0].message?.content || '{"questions":[],"passingScore":70}';
-  
-    // Remove triple backticks and any surrounding whitespace
     content = content.replace(/```json\s*([\s\S]*?)\s*```/, '$1').trim();
-  
-    // Parse the cleaned JSON string
     return JSON.parse(content);
   } catch (error) {
     console.error('Error parsing quiz JSON:', error);
     return { questions: [], passingScore: 70 };
-  }
-};
-
-// Enhanced tutorial generation
-export const generateTutorial = async (userId: string, query: string) => {
-  try {
-    const refinedTitle = await refineTopic(query);
-    const { data: assessment } = await getLatestAssessment(userId);
-    const mbtiType = assessment?.mbti_type || '';
-    const aiPreference = assessment?.ai_preference || '';
-
-    // Generate main content
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert AI adaptation coach creating tutorials.'
-        },
-        {
-          role: 'user',
-          content: generateTutorialPrompt(refinedTitle, mbtiType, aiPreference)
-        }
-      ]
-    });
-
-    const content = completion.choices[0].message?.content;
-    if (!content) throw new Error('Failed to generate tutorial content');
-
-    // Parse content into sections
-    const sections = parseSections(content);
-    const isCodingTutorial = detectCodeContent(content);
-
-    // Fetch resources
-    const [webResources, videoResources] = await Promise.all([
-      fetchWebResources(refinedTitle),
-      fetchVideoResources(refinedTitle)
-    ]);
-
-    // Generate quiz
-    const quiz = await generateQuiz(content);
-
-    // Properly await category determination
-    const category = await determineCategory(refinedTitle, content);
-    const difficulty = determineDifficulty(content);
-
-    // Ensure all fields have valid values
-    const tutorialData = {
-      title: refinedTitle,
-      content,
-      sections,
-      isCodingTutorial,
-      category,
-      difficulty,
-      resources: {
-        webLinks: webResources || [],
-        videos: videoResources || []
-      },
-      quiz: quiz || { questions: [], passingScore: 70 },
-      estimatedMinutes: Math.ceil(content.split(' ').length / 200),
-      createdAt: new Date(),
-      likes: 0,
-      views: 0,
-      userId,
-      mbtiType,
-      aiPreference
-    };
-
-    console.log('Tutorial data:', tutorialData); // Log the tutorial data
-
-    // Save to Firestore
-    const tutorialRef = await addDoc(collection(db, 'tutorials'), tutorialData);
-
-    return {
-      id: tutorialRef.id,
-      ...tutorialData
-    };
-  } catch (error) {
-    console.error('Error generating tutorial:', error);
-    throw error;
   }
 };
 
@@ -397,16 +428,9 @@ const determineCategory = async (title: string, content: string): Promise<string
   console.log('Category response from OpenAI:', categoryResponse);
   if (!TUTORIAL_CATEGORIES.includes(categoryResponse)) {
     console.log('Attempting to find category in response');
-    // Attempt to find one of the predefined categories in the response
     categoryResponse = TUTORIAL_CATEGORIES.find(cat => categoryResponse.includes(cat)) || TUTORIAL_CATEGORIES[0];
   }
   return categoryResponse;
-}
-
-// Determine difficulty based on content
-const determineDifficulty = (content: string): string => {
-  // Implementation based on content complexity
-  return 'intermediate'; // Placeholder
 };
 
 // Get recommended tutorials based on user preferences and completed tutorials
@@ -431,7 +455,6 @@ export const getRecommendedTutorials = async (userId: string, completedTutorialI
         orderBy('createdAt', 'desc')
       );
     } else {
-      // Fallback if no preferredMbti: only user-created tutorials
       combinedQuery = query(
         tutorialsRef,
         where('userId', '==', userId),
@@ -446,10 +469,8 @@ export const getRecommendedTutorials = async (userId: string, completedTutorialI
       ...doc.data()
     })) as Tutorial[];
     
-    // Filter out completed tutorials
     tutorials = tutorials.filter(t => !completedTutorialIds.includes(t.id));
     
-    // Sort by likes and creation date
     tutorials.sort((a, b) => {
       if (b.likes !== a.likes) return b.likes - a.likes;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -476,7 +497,6 @@ export const getTutorials = async (
     const tutorialsRef = collection(db, 'tutorials');
     const constraints: any[] = [];
     
-    // Add filters
     if (difficulty) {
       constraints.push(where('difficulty', '==', difficulty));
     }
@@ -485,7 +505,6 @@ export const getTutorials = async (
     const tutorialQuery = query(tutorialsRef, ...constraints);
     const snapshot = await getDocs(tutorialQuery);
     
-    // Manual pagination
     const lowerBound = (page - 1) * limitVal;
     const upperBound = lowerBound + limitVal;
     const docs = snapshot.docs.slice(lowerBound, upperBound);
@@ -495,7 +514,6 @@ export const getTutorials = async (
       ...doc.data()
     })) as Tutorial[];
 
-    // Client-side filtering for search and category
     if (searchQuery) {
       const queryLower = searchQuery.toLowerCase();
       tutorials = tutorials.filter(t =>

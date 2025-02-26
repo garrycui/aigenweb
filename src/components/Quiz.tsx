@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle, XCircle, ArrowRight, RefreshCw } from 'lucide-react';
+import { CheckCircle, XCircle, ArrowRight, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface QuizQuestion {
   id: number;
@@ -16,26 +16,35 @@ interface QuizProps {
 
 const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [showExplanation, setShowExplanation] = useState(false);
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [showExplanation, setShowExplanation] = useState<Record<number, boolean>>({});
   const [score, setScore] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [showFinalReview, setShowFinalReview] = useState(false);
 
   const handleAnswerSelect = (answerIndex: number) => {
-    if (selectedAnswer !== null) return;
-    setSelectedAnswer(answerIndex);
-    setShowExplanation(true);
+    if (selectedAnswers[currentQuestion] !== undefined) return;
 
-    if (answerIndex === questions[currentQuestion].correctAnswer) {
-      setScore(score + 1);
+    const isCorrect = answerIndex === questions[currentQuestion].correctAnswer;
+    setSelectedAnswers(prev => ({
+      ...prev,
+      [currentQuestion]: answerIndex
+    }));
+    setShowExplanation(prev => ({
+      ...prev,
+      [currentQuestion]: true
+    }));
+
+    if (isCorrect) {
+      setScore(prev => prev + 1);
     }
   };
 
   const handleNextQuestion = () => {
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(currentQuestion + 1);
-      setSelectedAnswer(null);
-      setShowExplanation(false);
+    } else if (!showFinalReview) {
+      setShowFinalReview(true);
     } else {
       setIsCompleted(true);
       onComplete(score);
@@ -44,10 +53,11 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
 
   const resetQuiz = () => {
     setCurrentQuestion(0);
-    setSelectedAnswer(null);
-    setShowExplanation(false);
+    setSelectedAnswers({});
+    setShowExplanation({});
     setScore(0);
     setIsCompleted(false);
+    setShowFinalReview(false);
   };
 
   if (isCompleted) {
@@ -88,7 +98,64 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
     );
   }
 
+  if (showFinalReview) {
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">Review Your Answers</h3>
+        <div className="space-y-6 mb-6">
+          {questions.map((question, index) => {
+            const selectedAnswer = selectedAnswers[index];
+            const isCorrect = selectedAnswer === question.correctAnswer;
+            return (
+              <div key={index} className="p-4 rounded-lg border">
+                <div className="flex items-start justify-between mb-2">
+                  <h4 className="font-medium text-gray-900">Question {index + 1}</h4>
+                  {isCorrect ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-500" />
+                  )}
+                </div>
+                <p className="text-gray-700 mb-2">{question.question}</p>
+                <div className="space-y-2 mb-4">
+                  {question.options.map((option, optIndex) => (
+                    <div
+                      key={optIndex}
+                      className={`p-2 rounded ${
+                        optIndex === question.correctAnswer
+                          ? 'bg-green-50 border-green-500'
+                          : optIndex === selectedAnswer
+                          ? 'bg-red-50 border-red-500'
+                          : 'bg-gray-50'
+                      }`}
+                    >
+                      {option}
+                    </div>
+                  ))}
+                </div>
+                <div className="text-sm">
+                  <p className={`font-medium ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                    {isCorrect ? 'Correct!' : 'Incorrect'}
+                  </p>
+                  <p className="text-gray-600 mt-1">{question.explanation}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          onClick={handleNextQuestion}
+          className="w-full flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          Complete Quiz
+        </button>
+      </div>
+    );
+  }
+
   const currentQ = questions[currentQuestion];
+  const selectedAnswer = selectedAnswers[currentQuestion];
+  const showingExplanation = showExplanation[currentQuestion];
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
@@ -112,47 +179,62 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
       <h3 className="text-lg font-medium text-gray-900 mb-4">{currentQ.question}</h3>
 
       <div className="space-y-3 mb-6">
-        {currentQ.options.map((option, index) => (
-          <button
-            key={index}
-            onClick={() => handleAnswerSelect(index)}
-            disabled={selectedAnswer !== null}
-            className={`w-full text-left p-4 rounded-lg border-2 transition-colors ${
-              selectedAnswer === null
-                ? 'border-gray-200 hover:border-indigo-600 hover:bg-indigo-50'
-                : index === currentQ.correctAnswer
-                ? 'border-green-500 bg-green-50'
-                : selectedAnswer === index
-                ? 'border-red-500 bg-red-50'
-                : 'border-gray-200 opacity-50'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span>{option}</span>
-              {selectedAnswer !== null && index === currentQ.correctAnswer && (
-                <CheckCircle className="h-5 w-5 text-green-500" />
-              )}
-              {selectedAnswer === index && index !== currentQ.correctAnswer && (
-                <XCircle className="h-5 w-5 text-red-500" />
-              )}
-            </div>
-          </button>
-        ))}
+        {currentQ.options.map((option, index) => {
+          const isSelected = selectedAnswer === index;
+          const isCorrect = index === currentQ.correctAnswer;
+          const showResult = isSelected || (showingExplanation && isCorrect);
+
+          return (
+            <button
+              key={index}
+              onClick={() => handleAnswerSelect(index)}
+              disabled={selectedAnswer !== undefined}
+              className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-200 ${
+                !showResult
+                  ? 'border-gray-200 hover:border-indigo-600 hover:bg-indigo-50'
+                  : isCorrect
+                  ? 'border-green-500 bg-green-50'
+                  : isSelected
+                  ? 'border-red-500 bg-red-50'
+                  : 'border-gray-200 opacity-50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span>{option}</span>
+                {showResult && (
+                  isCorrect ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : (
+                    isSelected && <XCircle className="h-5 w-5 text-red-500" />
+                  )
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      {showExplanation && (
+      {showingExplanation && (
         <div className={`p-4 rounded-lg mb-6 ${
           selectedAnswer === currentQ.correctAnswer ? 'bg-green-50' : 'bg-red-50'
         }`}>
-          <p className={`text-sm ${
-            selectedAnswer === currentQ.correctAnswer ? 'text-green-700' : 'text-red-700'
-          }`}>
-            {currentQ.explanation}
-          </p>
+          <div className="flex items-start">
+            <AlertCircle className={`h-5 w-5 mr-2 mt-0.5 ${
+              selectedAnswer === currentQ.correctAnswer ? 'text-green-500' : 'text-red-500'
+            }`} />
+            <div>
+              <p className={`font-medium ${
+                selectedAnswer === currentQ.correctAnswer ? 'text-green-700' : 'text-red-700'
+              }`}>
+                {selectedAnswer === currentQ.correctAnswer ? 'Correct!' : 'Incorrect'}
+              </p>
+              <p className="text-gray-600 mt-1">{currentQ.explanation}</p>
+            </div>
+          </div>
         </div>
       )}
 
-      {selectedAnswer !== null && (
+      {selectedAnswer !== undefined && (
         <button
           onClick={handleNextQuestion}
           className="w-full flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
@@ -163,7 +245,7 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
               <ArrowRight className="h-5 w-5 ml-2" />
             </>
           ) : (
-            'Complete Quiz'
+            'Review Answers'
           )}
         </button>
       )}

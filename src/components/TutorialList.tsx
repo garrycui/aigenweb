@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-// Replace getRecommendedTutorials with getTutorials
 import { getTutorials, Tutorial } from '../lib/tutorials';
 import { useAuth } from '../context/AuthContext';
 import TutorialCard from './TutorialCard';
@@ -9,8 +8,8 @@ import { doc, getDoc } from 'firebase/firestore';
 
 interface TutorialListProps {
   searchQuery?: string;
-  category?: string;
-  difficulty?: string;
+  categories?: string[];
+  difficulties?: string[];
   limit?: number;
   sortField?: string;
   sortDirection?: 'asc' | 'desc';
@@ -18,8 +17,8 @@ interface TutorialListProps {
 
 const TutorialList: React.FC<TutorialListProps> = ({ 
   searchQuery = '', 
-  category,
-  difficulty,
+  categories = [],
+  difficulties = [],
   limit = 10,
   sortField = 'createdAt',
   sortDirection = 'desc'
@@ -42,12 +41,28 @@ const TutorialList: React.FC<TutorialListProps> = ({
           currentPage, 
           limit, 
           searchQuery, 
-          category, 
-          difficulty,
+          undefined, // category is now handled client-side
+          undefined, // difficulty is now handled client-side
           sortField,
           sortDirection
         );
-        setTutorials(fetchedTutorials);
+
+        // Apply multi-select filters client-side
+        let filteredTutorials = fetchedTutorials;
+
+        if (categories.length > 0) {
+          filteredTutorials = filteredTutorials.filter(tutorial =>
+            categories.includes(tutorial.category)
+          );
+        }
+
+        if (difficulties.length > 0) {
+          filteredTutorials = filteredTutorials.filter(tutorial =>
+            difficulties.includes(tutorial.difficulty.toLowerCase())
+          );
+        }
+
+        setTutorials(filteredTutorials);
       } catch (err) {
         console.error('Error loading tutorials:', err);
         setError('Failed to load tutorials. Please try again.');
@@ -56,7 +71,7 @@ const TutorialList: React.FC<TutorialListProps> = ({
       }
     };
     loadTutorials();
-  }, [user, searchQuery, category, difficulty, limit, sortField, sortDirection, currentPage]);
+  }, [user, searchQuery, categories, difficulties, limit, sortField, sortDirection, currentPage]);
 
   useEffect(() => {
     const loadCompleted = async () => {
@@ -78,7 +93,6 @@ const TutorialList: React.FC<TutorialListProps> = ({
   };
 
   const handleNextPage = () => {
-    // If current page full (limit tutorials) then we assume more exist
     if(tutorials.length === limit) setCurrentPage(prev => prev + 1);
   };
 
@@ -118,7 +132,7 @@ const TutorialList: React.FC<TutorialListProps> = ({
     return (
       <div className="text-center py-12 bg-white rounded-lg shadow-md">
         <p className="text-gray-600">
-          {searchQuery || category || difficulty
+          {searchQuery || categories.length > 0 || difficulties.length > 0
             ? 'No tutorials match your filters. Try adjusting your search criteria.'
             : 'No tutorials available yet.'}
         </p>

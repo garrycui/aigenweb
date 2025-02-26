@@ -13,14 +13,15 @@ import { getUserBadges, checkAndAwardBadges, Badge } from '../lib/badges';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { getLatestAssessment } from '../lib/api'; // <-- new import
-import GrowthModal from '../components/GrowthModal'; // ensure file name matches exactly
+import { getLatestAssessment } from '../lib/api';
+import GrowthModal from '../components/GrowthModal';
 
 interface UserProgress {
   assessment: boolean;
   goals: {
     total: number;
     completed: number;
+    set: number;
   };
   tutorials: {
     total: number;
@@ -51,7 +52,7 @@ const Dashboard = () => {
   const [badges, setBadges] = useState<Badge[]>([]);
   const [progress, setProgress] = useState<UserProgress>({
     assessment: false,
-    goals: { total: 3, completed: 0 },
+    goals: { total: 3, completed: 0, set: 0 },
     tutorials: { total: 10, completed: 0 },
     posts: { total: 5, published: 0 }
   });
@@ -61,7 +62,6 @@ const Dashboard = () => {
   const [latestRating, setLatestRating] = useState<number>(0);
   const [psychTrend, setPsychTrend] = useState<number>(0);
 
-  // New function to refresh badges on demand
   const refreshBadges = async () => {
     if (!user) return;
     try {
@@ -80,31 +80,29 @@ const Dashboard = () => {
       try {
         setIsLoading(true);
         
-        // Load user progress from user doc
         const userRef = doc(db, 'users', user.id);
         const userDoc = await getDoc(userRef);
         const userData = userDoc.data();
         
         setCompletedTutorialIds(userData?.completedTutorials || []);
 
-        // Get learning goals
         const goalsRef = doc(db, 'users', user.id, 'learningGoals', 'goals');
         const goalsDoc = await getDoc(goalsRef);
         const goals = goalsDoc.data()?.goals || [];
         const completedGoals = goals.filter((g: any) => g.status === 'completed').length;
+        const totalGoalsSet = goals.length;
 
-        // Get completed tutorials and published posts counts from userData
         const completedTutorials = userData?.completedTutorials?.length || 0;
         const publishedPosts = userData?.publishedPosts?.length || 0;
 
-        // Fetch latest assessment status from the API
         const assessmentResult = await getLatestAssessment(user.id);
 
         setProgress({
-          assessment: !!assessmentResult.data, // update assessment status based on returned data
+          assessment: !!assessmentResult.data,
           goals: {
             total: 3,
-            completed: completedGoals
+            completed: completedGoals,
+            set: totalGoalsSet
           },
           tutorials: {
             total: 10,
@@ -116,12 +114,10 @@ const Dashboard = () => {
           }
         });
 
-        // Award badges if criteria met and then fetch updated badges
         await checkAndAwardBadges(user.id);
         const userBadges = await getUserBadges(user.id);
         setBadges(userBadges);
 
-        // Load recommended tutorials
         const recTutorials = await getRecommendedTutorials(user.id, completedTutorialIds, 3);
         setRecommendedTutorials(recTutorials);
 
@@ -181,7 +177,7 @@ const Dashboard = () => {
 
   const completionRate = Math.round(
     ((progress.assessment ? 1 : 0) +
-      progress.goals.completed / progress.goals.total +
+      (progress.goals.set >= progress.goals.total ? 1 : 0) +
       progress.tutorials.completed / progress.tutorials.total +
       progress.posts.published / progress.posts.total) /
       4 *
@@ -263,7 +259,6 @@ const Dashboard = () => {
         <div className="space-y-8">
           <DailyContent />
           
-          {/* Recommended Tutorials Section */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-gray-900">Recommended Tutorials</h2>
@@ -315,10 +310,10 @@ const Dashboard = () => {
 
                 <div className="relative flex items-center">
                   <div className={`absolute left-4 -ml-2 h-4 w-4 rounded-full border-2 ${
-                    progress.goals.completed > 0
-                      ? progress.goals.completed === progress.goals.total
-                        ? 'bg-green-500 border-green-500'
-                        : 'bg-yellow-500 border-yellow-500'
+                    progress.goals.set >= progress.goals.total
+                      ? 'bg-green-500 border-green-500'
+                      : progress.goals.set > 0
+                      ? 'bg-yellow-500 border-yellow-500'
                       : 'bg-white border-gray-300'
                   }`}></div>
                   <div className="ml-8">
@@ -326,11 +321,11 @@ const Dashboard = () => {
                       Set Learning Goals
                     </Link>
                     <p className="text-sm text-gray-500">
-                      {progress.goals.completed === 0
+                      {progress.goals.set === 0
                         ? 'Not Started'
-                        : progress.goals.completed === progress.goals.total
+                        : progress.goals.set >= progress.goals.total
                         ? 'Completed'
-                        : 'In Progress'}
+                        : `${progress.goals.set} of ${progress.goals.total} goals set`}
                     </p>
                   </div>
                 </div>
@@ -374,7 +369,6 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Modals */}
       <ReviewModal
         isOpen={isReviewModalOpen}
         onClose={() => {
@@ -399,7 +393,7 @@ const Dashboard = () => {
       <GrowthModal
         isOpen={isGrowthModalOpen}
         onClose={() => setIsGrowthModalOpen(false)}
-        onUpdate={fetchPsychDataForDashboard} // Pass the function to update data
+        onUpdate={fetchPsychDataForDashboard}
       />
     </div>
   );

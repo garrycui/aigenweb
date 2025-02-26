@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle, User, FileText, Shield } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getLatestAssessment } from '../lib/api';
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
+import TermsModal from '../components/TermsModal';
 
 type ValidationErrors = {
   email?: string;
   password?: string;
   name?: string;
+  terms?: string;
 };
 
 const Login = () => {
@@ -21,6 +24,9 @@ const Login = () => {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [signUpSuccess, setSignUpSuccess] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   useEffect(() => {
     const checkUserAssessment = async () => {
@@ -62,9 +68,16 @@ const Login = () => {
       isValid = false;
     }
 
-    if (!isLogin && !name.trim()) {
-      errors.name = 'Full name is required';
-      isValid = false;
+    if (!isLogin) {
+      if (!name.trim()) {
+        errors.name = 'Full name is required';
+        isValid = false;
+      }
+      
+      if (!acceptedTerms) {
+        errors.terms = 'You must accept the Terms of Service and Privacy Policy';
+        isValid = false;
+      }
     }
 
     setValidationErrors(errors);
@@ -200,7 +213,7 @@ const Login = () => {
                     <label htmlFor="name" className="block text-sm font-medium text-gray-700">
                       Full Name
                     </label>
-                    <div className="mt-1">
+                    <div className="mt-1 relative">
                       <input
                         id="name"
                         type="text"
@@ -211,6 +224,7 @@ const Login = () => {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                       />
+                      <User className="absolute right-3 top-2.5 h-5 w-5 text-gray-400" />
                       {validationErrors.name && renderErrorMessage(validationErrors.name)}
                     </div>
                   </div>
@@ -262,16 +276,58 @@ const Login = () => {
                 </div>
 
                 {!isLogin && (
-                  <div className="bg-indigo-50 p-4 rounded-lg">
-                    <h3 className="text-sm font-medium text-indigo-800 mb-2">
-                      Start with a Free Trial
-                    </h3>
-                    <ul className="text-sm text-indigo-700 space-y-1">
-                      <li>✓ 7 days of full access</li>
-                      <li>✓ No credit card required for trial</li>
-                      <li>✓ Cancel anytime</li>
-                    </ul>
-                  </div>
+                  <>
+                    <div className="bg-indigo-50 p-4 rounded-lg">
+                      <h3 className="text-sm font-medium text-indigo-800 mb-2">
+                        Start with a Free Trial
+                      </h3>
+                      <ul className="text-sm text-indigo-700 space-y-1">
+                        <li>✓ 7 days of full access</li>
+                        <li>✓ No credit card required for trial</li>
+                        <li>✓ Cancel anytime</li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-start">
+                        <div className="flex items-center h-5">
+                          <input
+                            id="terms"
+                            type="checkbox"
+                            checked={acceptedTerms}
+                            onChange={(e) => setAcceptedTerms(e.target.checked)}
+                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                          />
+                        </div>
+                        <div className="ml-3">
+                          <label htmlFor="terms" className="text-sm text-gray-600">
+                            I agree to the{' '}
+                            <button
+                              type="button"
+                              onClick={() => setShowTermsModal(true)}
+                              className="text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                              Terms of Service
+                            </button>
+                            {' '}and{' '}
+                            <button
+                              type="button"
+                              onClick={() => setShowPrivacyModal(true)}
+                              className="text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                              Privacy Policy
+                            </button>
+                          </label>
+                        </div>
+                      </div>
+                      {validationErrors.terms && renderErrorMessage(validationErrors.terms)}
+                    </div>
+
+                    <div className="flex items-center space-x-2 text-sm text-gray-500">
+                      <Shield className="h-4 w-4" />
+                      <span>Your data is protected by industry-standard encryption</span>
+                    </div>
+                  </>
                 )}
 
                 <div>
@@ -300,21 +356,18 @@ const Login = () => {
               </form>
             </div>
           </div>
-
-          {!isLogin && (
-            <div className="mt-4 text-center text-sm text-gray-500">
-              By signing up, you agree to our{' '}
-              <Link to="/terms" className="text-indigo-600 hover:text-indigo-800">
-                Terms of Service
-              </Link>{' '}
-              and{' '}
-              <Link to="/privacy" className="text-indigo-600 hover:text-indigo-800">
-                Privacy Policy
-              </Link>
-            </div>
-          )}
         </>
       )}
+
+      <PrivacyPolicyModal
+        isOpen={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+      />
+
+      <TermsModal
+        isOpen={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+      />
     </div>
   );
 };

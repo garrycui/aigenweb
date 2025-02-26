@@ -22,8 +22,8 @@ const DIFFICULTY_LEVELS = [
 
 const Tutorials = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedDifficulty, setSelectedDifficulty] = useState('All');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery);
@@ -37,6 +37,38 @@ const Tutorials = () => {
       clearTimeout(handler);
     };
   }, [searchQuery]);
+
+  const handleCategoryToggle = (category: string) => {
+    if (category === 'All') {
+      setSelectedCategories([]);
+      return;
+    }
+    
+    setSelectedCategories(prev => {
+      const isSelected = prev.includes(category);
+      if (isSelected) {
+        return prev.filter(c => c !== category);
+      } else {
+        return [...prev, category];
+      }
+    });
+  };
+
+  const handleDifficultyToggle = (difficulty: string) => {
+    if (difficulty === 'All') {
+      setSelectedDifficulties([]);
+      return;
+    }
+    
+    setSelectedDifficulties(prev => {
+      const isSelected = prev.includes(difficulty);
+      if (isSelected) {
+        return prev.filter(d => d !== difficulty);
+      } else {
+        return [...prev, difficulty];
+      }
+    });
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4">
@@ -76,47 +108,63 @@ const Tutorials = () => {
               className="flex items-center px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
             >
               <Filter className="h-5 w-5 mr-2" />
-              Filters
+              Filters {showFilters ? 'Hide' : 'Show'}
             </button>
           </div>
 
           {/* Filters Panel */}
           {showFilters && (
-            <div className="mt-4 pt-4 border-t grid sm:grid-cols-2 gap-4">
-              {/* Category Filter */}
+            <div className="mt-4 pt-4 border-t space-y-4">
+              {/* Category Filters */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Categories
                 </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
+                <div className="flex flex-wrap gap-2">
                   {CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
+                    <button
+                      key={category}
+                      onClick={() => handleCategoryToggle(category)}
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                        category === 'All'
+                          ? selectedCategories.length === 0
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : selectedCategories.includes(category)
+                          ? 'bg-indigo-100 text-indigo-800'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
                       {category}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
-              {/* Difficulty Filter */}
+              {/* Difficulty Filters */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Difficulty
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Difficulty Levels
                 </label>
-                <select
-                  value={selectedDifficulty}
-                  onChange={(e) => setSelectedDifficulty(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
-                  {DIFFICULTY_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {level.charAt(0).toUpperCase() + level.slice(1)}
-                    </option>
+                <div className="flex flex-wrap gap-2">
+                  {DIFFICULTY_LEVELS.map((difficulty) => (
+                    <button
+                      key={difficulty}
+                      onClick={() => handleDifficultyToggle(difficulty)}
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                        difficulty === 'All'
+                          ? selectedDifficulties.length === 0
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : selectedDifficulties.includes(difficulty)
+                          ? 'bg-indigo-100 text-indigo-800'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
             </div>
           )}
@@ -128,19 +176,19 @@ const Tutorials = () => {
         {CATEGORIES.slice(1).map((category) => (
           <button
             key={category}
-            onClick={() => setSelectedCategory(category)}
+            onClick={() => handleCategoryToggle(category)}
             className={`p-6 rounded-lg border-2 transition-colors ${
-              selectedCategory === category
+              selectedCategories.includes(category)
                 ? 'border-indigo-600 bg-indigo-50'
                 : 'border-gray-200 hover:border-indigo-600 hover:bg-indigo-50'
             }`}
           >
             <div className="flex items-center space-x-3">
               <Book className={`h-6 w-6 ${
-                selectedCategory === category ? 'text-indigo-600' : 'text-gray-500'
+                selectedCategories.includes(category) ? 'text-indigo-600' : 'text-gray-500'
               }`} />
               <span className={`font-medium ${
-                selectedCategory === category ? 'text-indigo-600' : 'text-gray-900'
+                selectedCategories.includes(category) ? 'text-indigo-600' : 'text-gray-900'
               }`}>
                 {category}
               </span>
@@ -149,11 +197,11 @@ const Tutorials = () => {
         ))}
       </div>
 
-      {/* TutorialList now marks completed tutorials with a 'Completed' badge */}
+      {/* TutorialList with multi-select filters */}
       <TutorialList
         searchQuery={debouncedSearchQuery}
-        category={selectedCategory === 'All' ? undefined : selectedCategory}
-        difficulty={selectedDifficulty === 'All' ? undefined : selectedDifficulty}
+        categories={selectedCategories}
+        difficulties={selectedDifficulties}
       />
 
       <GenerateTutorialModal

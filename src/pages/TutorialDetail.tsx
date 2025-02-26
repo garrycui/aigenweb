@@ -229,41 +229,52 @@ const TutorialDetail = () => {
     }
   };
 
-  const handleQuizSubmit = async () => {
-    if (!tutorial || !user) return;
+  const handleQuizAnswer = async (questionId: number, selectedAnswer: number) => {
+    if (!tutorial) return;
 
-    const correctAnswers = quizAnswers.filter(
-      answer => answer.selectedAnswer === tutorial.quiz.questions[answer.questionId].correctAnswer
-    ).length;
-
-    const score = (correctAnswers / tutorial.quiz.questions.length) * 100;
-    setQuizScore(score);
-
-    if (score >= tutorial.quiz.passingScore) {
-      try {
-        const userDocRef = doc(db, 'users', user.id);
-        await updateDoc(userDocRef, {
-          completedTutorials: arrayUnion(tutorial.id)
-        });
-        setIsCompleted(true);
-        setShowCongrats(true);
-        setTimeout(() => setShowCongrats(false), 3000);
-      } catch (error) {
-        console.error('Error marking tutorial as completed:', error);
-      }
-    }
-  };
-
-  const handleQuizAnswer = (questionId: number, selectedAnswer: number) => {
+    // Update the quiz answers
     setQuizAnswers(prev => {
       const existing = prev.find(a => a.questionId === questionId);
       if (existing) {
-        return prev.map(a => 
-          a.questionId === questionId ? { ...a, selectedAnswer } : a
-        );
+        // Allow changing answer if it was incorrect
+        if (existing.selectedAnswer !== tutorial.quiz.questions[questionId].correctAnswer) {
+          return prev.map(a => 
+            a.questionId === questionId ? { ...a, selectedAnswer } : a
+          );
+        }
+        return prev; // Keep existing answer if it was correct
       }
       return [...prev, { questionId, selectedAnswer }];
     });
+
+    // Calculate score for this question
+    const isCorrect = selectedAnswer === tutorial.quiz.questions[questionId].correctAnswer;
+
+    // If this is the last question and all questions are answered correctly, calculate final score
+    const allQuestionsAnsweredCorrectly = tutorial.quiz.questions.every((question, index) => {
+      const answer = quizAnswers.find(a => a.questionId === index);
+      return (index === questionId && isCorrect) || // Current question is correct
+             (answer && answer.selectedAnswer === question.correctAnswer); // Other questions are correct
+    });
+
+    if (allQuestionsAnsweredCorrectly) {
+      const score = 100; // All answers are correct
+      setQuizScore(score);
+
+      if (score >= tutorial.quiz.passingScore && user) {
+        try {
+          const userDocRef = doc(db, 'users', user.id);
+          await updateDoc(userDocRef, {
+            completedTutorials: arrayUnion(tutorial.id)
+          });
+          setIsCompleted(true);
+          setShowCongrats(true);
+          setTimeout(() => setShowCongrats(false), 3000);
+        } catch (error) {
+          console.error('Error marking tutorial as completed:', error);
+        }
+      }
+    }
   };
 
   if (isLoading) {
@@ -400,47 +411,77 @@ const TutorialDetail = () => {
                     <div className="bg-gray-50 p-6 rounded-lg">
                       <h3 className="font-medium mb-4">{tutorial.quiz.questions[currentQuizQuestion].question}</h3>
                       <div className="space-y-2">
-                        {tutorial.quiz.questions[currentQuizQuestion].options.map((option, optionIndex) => (
-                          <button
-                            key={optionIndex}
-                            onClick={() => handleQuizAnswer(currentQuizQuestion, optionIndex)}
-                            className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                              quizAnswers.find(a => a.questionId === currentQuizQuestion)?.selectedAnswer === optionIndex
-                                ? 'border-indigo-600 bg-indigo-50'
-                                : 'border-gray-200 hover:border-indigo-600'
-                            }`}
-                          >
-                            {option}
-                          </button>
-                        ))}
+                        {tutorial.quiz.questions[currentQuizQuestion].options.map((option, optionIndex) => {
+                          const currentAnswer = quizAnswers.find(a => a.questionId === currentQuizQuestion);
+                          const isSelected = currentAnswer?.selectedAnswer === optionIndex;
+                          const isCorrect = optionIndex === tutorial.quiz.questions[currentQuizQuestion].correctAnswer;
+                          const showResult = currentAnswer !== undefined;
+                          const canChange = showResult && !isCorrect && currentAnswer.selectedAnswer !== tutorial.quiz.questions[currentQuizQuestion].correctAnswer;
+
+                          return (
+                            <button
+                              key={optionIndex}
+                              onClick={() => handleQuizAnswer(currentQuizQuestion, optionIndex)}
+                              disabled={showResult && !canChange}
+                              className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                                showResult
+                                  ? isCorrect
+                                    ? 'border-green-500 bg-green-50 text-green-700'
+                                    : isSelected
+                                    ? canChange
+                                      ? 'border-red-500 bg-red-50 text-red-700 hover:bg-red-100'
+                                      : 'border-red-500 bg-red-50 text-red-700'
+                                    : 'border-gray-200 bg-gray-50 text-gray-500'
+                                  : 'border-gray-200 hover:border-indigo-600'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span>{option}</span>
+                                {showResult && (isCorrect || isSelected) && (
+                                  <span className={`text-sm font-medium ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+                                    {isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
-                      {quizScore !== null && (
-                        <div className="mt-4 text-sm">
-                          <p className={tutorial.quiz.questions[currentQuizQuestion].correctAnswer === quizAnswers.find(a => a.questionId === currentQuizQuestion)?.selectedAnswer
-                            ? 'text-green-600'
-                            : 'text-red-600'
-                          }>
+                      {quizAnswers.find(a => a.questionId === currentQuizQuestion) !== undefined && (
+                        <div className="mt-4 p-4 rounded-lg bg-gray-100">
+                          <p className={`text-sm font-medium ${
+                            quizAnswers.find(a => a.questionId === currentQuizQuestion)?.selectedAnswer === tutorial.quiz.questions[currentQuizQuestion].correctAnswer
+                              ? 'text-green-600'
+                              : 'text-red-600'
+                          }`}>
                             {tutorial.quiz.questions[currentQuizQuestion].explanation}
+                            {quizAnswers.find(a => a.questionId === currentQuizQuestion)?.selectedAnswer !== tutorial.quiz.questions[currentQuizQuestion].correctAnswer && (
+                              <span className="block mt-2 text-indigo-600">
+                                Try again! Select the correct answer.
+                              </span>
+                            )}
                           </p>
                         </div>
                       )}
                     </div>
-                    {currentQuizQuestion < tutorial.quiz.questions.length - 1 ? (
+
+                    <div className="flex justify-between">
                       <button
-                        onClick={() => setCurrentQuizQuestion(prev => prev + 1)}
-                        className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        onClick={() => setCurrentQuizQuestion(prev => Math.max(0, prev - 1))}
+                        disabled={currentQuizQuestion === 0}
+                        className="px-4 py-2 text-gray-600 disabled:text-gray-400"
                       >
-                        Next Question
+                        Previous
                       </button>
-                    ) : (
                       <button
-                        onClick={handleQuizSubmit}
-                        disabled={quizAnswers.length !== tutorial.quiz.questions.length}
-                        className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400"
+                        onClick={() => setCurrentQuizQuestion(prev => Math.min(tutorial.quiz.questions.length - 1, prev + 1))}
+                        disabled={currentQuizQuestion === tutorial.quiz.questions.length - 1}
+                        className="px-4 py-2 text-gray-600 disabled:text-gray-400"
                       >
-                        Submit Quiz
+                        Next
                       </button>
-                    )}
+                    </div>
+
                     {quizScore !== null && (
                       <div className={`p-4 rounded-lg ${
                         quizScore >= tutorial.quiz.passingScore
@@ -451,7 +492,7 @@ const TutorialDetail = () => {
                         <p>
                           {quizScore >= tutorial.quiz.passingScore
                             ? 'Congratulations! You have passed the quiz!'
-                            : `You need ${tutorial.quiz.passingScore}% to pass. Try again!`}
+                            : 'Keep trying! Select the correct answers to complete the quiz.'}
                         </p>
                       </div>
                     )}

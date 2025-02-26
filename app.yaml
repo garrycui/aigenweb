@@ -33,9 +33,9 @@ handlers:
     script: auto
 
   # Serve static assets (only if the file exists)
-  - url: /(.*\.(css|js|png|jpg|svg|ico|mp4))$
+  - url: /(.*\.(css|js|png|jpg|svg|ico|mp4|html))$
     static_files: dist/\1
-    upload: dist/.*\.(css|js|png|jpg|svg|ico|mp4)$
+    upload: dist/.*\.(css|js|png|jpg|svg|ico|mp4|html)$
 
   # Catch-all handler for client-side routes
   - url: /.*

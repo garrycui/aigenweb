@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Image, Video} from 'lucide-react';
+import { Image, Video, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { createPost } from '../lib/api';
+import ContentModeration from '../components/ContentModeration';
 
 const NewPost = () => {
   const navigate = useNavigate();
@@ -13,6 +14,8 @@ const NewPost = () => {
   const [imageUrl, setImageUrl] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isContentValid, setIsContentValid] = useState(false);
+  const [isTitleValid, setIsTitleValid] = useState(false);
 
   const categories = [
     'Success Stories',
@@ -24,8 +27,7 @@ const NewPost = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      navigate('/login');
+    if (!user || !isContentValid || !isTitleValid) {
       return;
     }
 
@@ -80,6 +82,11 @@ const NewPost = () => {
               className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               required
             />
+            <ContentModeration
+              content={title}
+              onValidationComplete={setIsTitleValid}
+              type="title"
+            />
           </div>
 
           <div>
@@ -94,6 +101,11 @@ const NewPost = () => {
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               rows={10}
               required
+            />
+            <ContentModeration
+              content={content}
+              onValidationComplete={setIsContentValid}
+              type="content"
             />
           </div>
 
@@ -144,9 +156,11 @@ const NewPost = () => {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isContentValid || !isTitleValid || !category}
               className={`px-6 py-2 bg-indigo-600 text-white rounded-lg transition-colors ${
-                isSubmitting ? 'bg-indigo-400 cursor-not-allowed' : 'hover:bg-indigo-700'
+                isSubmitting || !isContentValid || !isTitleValid || !category
+                  ? 'bg-indigo-400 cursor-not-allowed'
+                  : 'hover:bg-indigo-700'
               }`}
             >
               {isSubmitting ? (
