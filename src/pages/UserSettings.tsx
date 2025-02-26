@@ -4,6 +4,35 @@ import { Settings, Bell, Lock, Eye, Mail } from 'lucide-react';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
+// Common timezones list to use as fallback
+const commonTimezones = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Asia/Shanghai',
+  'Australia/Sydney',
+  'Pacific/Auckland'
+];
+
+// Helper function to get available timezones
+const getAvailableTimezones = (): string[] => {
+  try {
+    // Use type assertion to bypass TypeScript error
+    const intlWithSupport = Intl as any;
+    if (typeof intlWithSupport.supportedValuesOf === 'function') {
+      return intlWithSupport.supportedValuesOf('timeZone');
+    }
+  } catch (error) {
+    console.warn('Intl.supportedValuesOf not available, using fallback timezone list');
+  }
+  return commonTimezones;
+};
+
 const UserSettings = () => {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
@@ -294,7 +323,7 @@ const UserSettings = () => {
                     }))}
                     className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
                   >
-                    {Intl.supportedValuesOf('timeZone').map((timezone: string) => (
+                    {getAvailableTimezones().map((timezone: string) => (
                       <option key={timezone} value={timezone}>
                         {timezone}
                       </option>

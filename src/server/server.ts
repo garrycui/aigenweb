@@ -1,7 +1,7 @@
 import express from 'express';
 import Stripe from 'stripe';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { getFirestore, doc, updateDoc, collection, getDocs, query, where, getDoc } from 'firebase/firestore';
 import cron from 'node-cron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -48,30 +48,82 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
 // Use JSON parser for all non-webhook routes
-app.use(
-  (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction
-  ): void => {
-    if (req.originalUrl === '/webhook') {
-      next();
-    } else {
-      express.json()(req, res, next);
-    }
+app.use((req, res, next) => {
+  if (req.originalUrl === '/webhook') {
+    next();
+  } else {
+    express.json()(req, res, next);
   }
-);
+});
+
+// API endpoint to cancel subscription
+app.post('/api/cancel-subscription', async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+    
+    // Cancel the subscription at period end
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: true
+    });
+
+    res.json({ success: true, subscription });
+  } catch (error) {
+    console.error('Error canceling subscription:', error);
+    res.status(500).json({ error: 'Failed to cancel subscription' });
+  }
+});
+
+// API endpoint to resume subscription
+app.post('/api/resume-subscription', async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+    
+    // Resume the subscription
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: false
+    });
+
+    res.json({ success: true, subscription });
+  } catch (error) {
+    console.error('Error resuming subscription:', error);
+    res.status(500).json({ error: 'Failed to resume subscription' });
+  }
+});
+
+// API endpoint to create billing portal session
+app.post('/api/create-portal-session', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    // Get user's Stripe customer ID
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    const stripeCustomerId = userDoc.data()?.stripeCustomerId;
+
+    if (!stripeCustomerId) {
+      throw new Error('No Stripe customer ID found');
+    }
+
+    // Create billing portal session
+    const session = await stripe.billingPortal.sessions.create({
+      customer: stripeCustomerId,
+      return_url: `${process.env.VITE_APP_URL}/subscription`
+    });
+
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error('Error creating portal session:', error);
+    res.status(500).json({ error: 'Failed to create portal session' });
+  }
+});
 
 // Webhook endpoint
 app.post(
   '/webhook',
-  // Stripe requires the raw body to construct the event
-  express.raw({type: 'application/json'}),
-  (req: express.Request, res: express.Response): void => {
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const body = req.body;
-    console.log('Stripe webhook received:', body);
-    console.log('Stripe signature:', sig);
 
     if (!sig) {
       console.error('Stripe signature is missing');
@@ -83,7 +135,6 @@ app.post(
 
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
-      console.log('Event constructed:', process.env.STRIPE_WEBHOOK_SECRET);
     } catch (err) {
       if (err instanceof Error) {
         console.log(`❌ Error message: ${err.message}`);
@@ -95,99 +146,102 @@ app.post(
       return;
     }
 
-    // Successfully constructed event
-    console.log('✅ Success:', event.id);
+    // Handle different event types
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const clientReferenceId = session.client_reference_id;
+        const customerId = session.customer as string;
+        const subscriptionId = session.subscription as string;
 
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const clientReferenceId = session.client_reference_id;
-      const customerId = session.customer as string;
+        if (!clientReferenceId || !customerId || !subscriptionId) {
+          res.status(400).send('Missing required fields');
+          return;
+        }
 
-      console.log('Checkout session completed event received');
-      console.log('Client Reference ID:', clientReferenceId);
-      console.log('Customer ID:', customerId);
+        const [userId, priceId] = clientReferenceId.split(':');
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const metadata = subscription.metadata || {};
 
-      if (!clientReferenceId) {
-        console.error('Client Reference ID is null or undefined');
-        res.status(400).send('Client Reference ID is required');
-        return;
-      }
+        // Handle plan switch if there's a previous subscription
+        if (metadata.previousSubscriptionId) {
+          // Cancel the old subscription immediately
+          await stripe.subscriptions.cancel(metadata.previousSubscriptionId);
+        }
 
-      if (!customerId) {
-        console.error('Customer ID is null or undefined');
-        res.status(400).send('Customer ID is required');
-        return;
-      }
+        // Determine subscription details
+        let plan;
+        let subscriptionEnd;
+        const subscriptionStart = new Date(subscription.current_period_start * 1000);
 
-      // Decode userId and priceId from clientReferenceId
-      const [userId, priceId] = clientReferenceId.split(':');
+        if (priceId === PLANS.MONTHLY.id) {
+          plan = 'monthly';
+          subscriptionEnd = new Date(subscription.current_period_end * 1000);
+        } else if (priceId === PLANS.ANNUAL.id) {
+          plan = 'annual';
+          subscriptionEnd = new Date(subscription.current_period_end * 1000);
+        } else {
+          res.status(400).send('Invalid price ID');
+          return;
+        }
 
-      console.log('User ID:', userId);
-      console.log('Price ID:', priceId);
-
-      if (!userId) {
-        console.error('User ID is null or undefined');
-        res.status(400).send('User ID is required');
-        return;
-      }
-
-      if (!priceId) {
-        console.error('Price ID is null or undefined');
-        res.status(400).send('Price ID is required');
-        return;
-      }
-
-      let plan;
-      let subscriptionEnd;
-      const subscriptionStart = new Date();
-
-      if (priceId === PLANS.MONTHLY.id) {
-        plan = 'monthly';
-        subscriptionEnd = new Date(subscriptionStart);
-        subscriptionEnd.setMonth(subscriptionEnd.getMonth() + 1);
-        console.log('Monthly plan selected');
-      } else if (priceId === PLANS.ANNUAL.id) {
-        plan = 'annual';
-        subscriptionEnd = new Date(subscriptionStart);
-        subscriptionEnd.setFullYear(subscriptionEnd.getFullYear() + 1);
-        console.log('Annual plan selected');
-      } else {
-        console.error('Unknown price ID:', priceId);
-        res.status(400).send('Unknown price ID');
-        return;
-      }
-
-      console.log('Subscription start:', subscriptionStart);
-      console.log('Subscription end:', subscriptionEnd);
-
-      try {
+        // Update user in Firestore
         const userRef = doc(db, 'users', userId);
-        const trialEndsAt = new Date(subscriptionStart.getTime() - 60000); // Set trialEndsAt to one minute before the current time
-        updateDoc(userRef, {
+        await updateDoc(userRef, {
           stripeCustomerId: customerId,
+          stripeSubscriptionId: subscriptionId,
           subscriptionStatus: 'active',
           subscriptionPlan: plan,
           subscriptionStart,
           subscriptionEnd,
-          isTrialing: false, // End the trial period
-          trialEndsAt, // Update trialEndsAt
+          isTrialing: false,
+          cancelAtPeriodEnd: false,
           updatedAt: new Date()
         });
-        console.log('Firestore updated successfully for user:', userId);
-      } catch (error) {
-        console.error('Error updating Firestore with Stripe customer id:', error);
-        if (error instanceof Error && error.message.includes('503')) {
-          res.status(503).send('Service Unavailable. Please retry.');
-        } else {
-          res.status(500).send('Internal Server Error');
-        }
-        return;
+
+        break;
       }
-    } else {
-      console.log('Unhandled event type:', event.type);
+
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const userId = subscription.metadata.userId;
+
+        if (!userId) {
+          res.status(400).send('Missing user ID in metadata');
+          return;
+        }
+
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, {
+          subscriptionEnd: new Date(subscription.current_period_end * 1000),
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          updatedAt: new Date()
+        });
+
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const userId = subscription.metadata.userId;
+
+        if (!userId) {
+          res.status(400).send('Missing user ID in metadata');
+          return;
+        }
+
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, {
+          subscriptionStatus: 'expired',
+          stripeSubscriptionId: null,
+          updatedAt: new Date()
+        });
+
+        break;
+      }
     }
 
-    res.status(200).send('Received');
+    res.status(200).send('Webhook processed');
   }
 );
 
@@ -195,7 +249,12 @@ app.post(
 cron.schedule('0 0 * * *', async () => {
   const now = new Date();
   const usersRef = collection(db, 'users');
-  const q = query(usersRef, where('subscriptionEnd', '<=', now), where('subscriptionStatus', '==', 'active'));
+  const q = query(
+    usersRef,
+    where('subscriptionEnd', '<=', now),
+    where('subscriptionStatus', '==', 'active')
+  );
+  
   const querySnapshot = await getDocs(q);
 
   querySnapshot.forEach(async (doc) => {

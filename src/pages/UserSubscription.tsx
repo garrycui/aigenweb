@@ -1,19 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { CreditCard, Clock, Shield, CheckCircle } from 'lucide-react';
+import { 
+  CreditCard, Clock, Shield, CheckCircle, AlertTriangle, 
+  CreditCard as BillingIcon, Settings, ArrowRight 
+} from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { PLANS, createCheckoutSession } from '../lib/stripe';
+import { 
+  PLANS, 
+  createCheckoutSession, 
+  cancelSubscription, 
+  resumeSubscription,
+  getBillingPortalUrl 
+} from '../lib/stripe';
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
+import TermsModal from '../components/TermsModal';
 
 const UserSubscription = () => {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [termsModalOpen, setTermsModalOpen] = useState(false);
+  const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<{
     status: string;
     plan: string;
     currentPeriodEnd: Date | null;
     cancelAtPeriodEnd: boolean;
+    stripeSubscriptionId: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -25,11 +40,13 @@ const UserSubscription = () => {
         const userDoc = await getDoc(userRef);
         if (userDoc.exists()) {
           const data = userDoc.data();
+          
           setSubscriptionData({
             status: data.subscriptionStatus || 'inactive',
             plan: data.subscriptionPlan || '',
             currentPeriodEnd: data.subscriptionEnd?.toDate() || null,
-            cancelAtPeriodEnd: data.cancelAtPeriodEnd || false
+            cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
+            stripeSubscriptionId: data.stripeSubscriptionId || null
           });
         }
       } catch (error) {
@@ -46,10 +63,61 @@ const UserSubscription = () => {
   const handleUpgrade = async (priceId: string) => {
     if (!user) return;
     try {
+      setIsProcessing(true);
       await createCheckoutSession(user.id, priceId);
     } catch (error) {
       console.error('Error creating checkout session:', error);
       setError('Failed to start upgrade process');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!user || !subscriptionData?.stripeSubscriptionId) return;
+    try {
+      setIsProcessing(true);
+      await cancelSubscription(user.id);
+      setSubscriptionData(prev => prev ? {
+        ...prev,
+        cancelAtPeriodEnd: true
+      } : null);
+    } catch (error) {
+      console.error('Error canceling subscription:', error);
+      setError('Failed to cancel subscription');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!user || !subscriptionData?.stripeSubscriptionId) return;
+    try {
+      setIsProcessing(true);
+      await resumeSubscription(user.id);
+      setSubscriptionData(prev => prev ? {
+        ...prev,
+        cancelAtPeriodEnd: false
+      } : null);
+    } catch (error) {
+      console.error('Error resuming subscription:', error);
+      setError('Failed to resume subscription');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBillingPortal = async () => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      const url = await getBillingPortalUrl(user.id);
+      window.location.href = url;
+    } catch (error) {
+      console.error('Error accessing billing portal:', error);
+      setError('Failed to access billing portal');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -76,18 +144,21 @@ const UserSubscription = () => {
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-              {error}
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center">
+                <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
+                <p className="text-red-700">{error}</p>
+              </div>
             </div>
           )}
 
           {/* Current Subscription Status */}
-          <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+          <div className="mb-8 p-6 bg-gray-50 rounded-lg">
             <h2 className="text-lg font-medium text-gray-900 mb-4">Current Plan</h2>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-4">
               <div>
                 <p className="font-medium text-gray-900">
-                  {subscriptionData?.plan ? `${subscriptionData.plan} Plan` : 'Free Trial'}
+                  {subscriptionData?.plan ? `${subscriptionData.plan.charAt(0).toUpperCase() + subscriptionData.plan.slice(1)} Plan` : 'Free Trial'}
                 </p>
                 <p className="text-sm text-gray-600">
                   {subscriptionData?.currentPeriodEnd
@@ -103,6 +174,50 @@ const UserSubscription = () => {
                 {subscriptionData?.status === 'active' ? 'Active' : 'Inactive'}
               </div>
             </div>
+
+            {/* Subscription Actions */}
+            {subscriptionData?.stripeSubscriptionId && (
+              <div className="space-y-4">
+                {subscriptionData.cancelAtPeriodEnd ? (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start">
+                      <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 mr-2" />
+                      <div>
+                        <p className="text-yellow-800 font-medium">Subscription Scheduled to Cancel</p>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Your subscription will end on {subscriptionData.currentPeriodEnd?.toLocaleDateString()}.
+                          You can resume your subscription to continue uninterrupted access.
+                        </p>
+                        <button
+                          onClick={handleResume}
+                          disabled={isProcessing}
+                          className="mt-3 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50"
+                        >
+                          {isProcessing ? 'Processing...' : 'Resume Subscription'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <button
+                      onClick={handleBillingPortal}
+                      className="flex-1 flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                      <BillingIcon className="h-5 w-5 mr-2" />
+                      Manage Billing
+                    </button>
+                    <button
+                      onClick={handleCancel}
+                      disabled={isProcessing}
+                      className="flex-1 flex items-center justify-center px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Cancel Subscription
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Available Plans */}
@@ -130,9 +245,16 @@ const UserSubscription = () => {
               </ul>
               <button
                 onClick={() => handleUpgrade(PLANS.MONTHLY.id)}
-                className="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors"
+                disabled={isProcessing || subscriptionData?.plan === 'monthly'}
+                className={`w-full bg-indigo-600 text-white py-2 px-4 rounded-lg transition-colors ${
+                  isProcessing || subscriptionData?.plan === 'monthly'
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-indigo-700'
+                }`}
               >
-                {subscriptionData?.plan === 'monthly' ? 'Current Plan' : 'Switch to Monthly'}
+                {isProcessing ? 'Processing...' : 
+                 subscriptionData?.plan === 'monthly' ? 'Current Plan' : 
+                 'Switch to Monthly'}
               </button>
             </div>
 
@@ -167,14 +289,79 @@ const UserSubscription = () => {
               </ul>
               <button
                 onClick={() => handleUpgrade(PLANS.ANNUAL.id)}
-                className="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors"
+                disabled={isProcessing || subscriptionData?.plan === 'annual'}
+                className={`w-full bg-indigo-600 text-white py-2 px-4 rounded-lg transition-colors ${
+                  isProcessing || subscriptionData?.plan === 'annual'
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-indigo-700'
+                }`}
               >
-                {subscriptionData?.plan === 'annual' ? 'Current Plan' : 'Switch to Annual'}
+                {isProcessing ? 'Processing...' : 
+                 subscriptionData?.plan === 'annual' ? 'Current Plan' : 
+                 'Switch to Annual'}
               </button>
             </div>
           </div>
+
+          {/* Billing History & Settings */}
+          {subscriptionData?.stripeSubscriptionId && (
+            <div className="mt-8 border-t pt-8">
+              <h2 className="text-lg font-medium text-gray-900 mb-4">Billing & Settings</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={handleBillingPortal}
+                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100"
+                >
+                  <div className="flex items-center">
+                    <BillingIcon className="h-5 w-5 text-gray-600 mr-3" />
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Billing History</p>
+                      <p className="text-sm text-gray-600">View past invoices</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-gray-400" />
+                </button>
+
+                <button
+                  onClick={handleBillingPortal}
+                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100"
+                >
+                  <div className="flex items-center">
+                    <Settings className="h-5 w-5 text-gray-600 mr-3" />
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Payment Methods</p>
+                      <p className="text-sm text-gray-600">Manage payment options</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-gray-400" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-8 text-center text-sm text-gray-500">
+            By subscribing, you agree to our{' '}
+            <button 
+              onClick={() => setTermsModalOpen(true)}
+              className="text-indigo-600 hover:text-indigo-800 underline"
+            >
+              Terms of Service
+            </button>{' '}
+            and{' '}
+            <button 
+              onClick={() => setPrivacyModalOpen(true)}
+              className="text-indigo-600 hover:text-indigo-800 underline"
+            >
+              Privacy Policy
+            </button>.
+            You can cancel your subscription at any time.
+          </div>
         </div>
       </div>
+
+      {/* Modals */}
+      <TermsModal isOpen={termsModalOpen} onClose={() => setTermsModalOpen(false)} />
+      <PrivacyPolicyModal isOpen={privacyModalOpen} onClose={() => setPrivacyModalOpen(false)} />
     </div>
   );
 };
