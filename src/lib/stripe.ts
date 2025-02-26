@@ -42,8 +42,8 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
         quantity: 1
       }],
       mode: 'subscription',
-      successUrl: `${window.location.origin}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${window.location.origin}/dashboard`,
+      successUrl: window.location.origin + '/dashboard?session_id={CHECKOUT_SESSION_ID}',
+      cancelUrl: window.location.origin + '/dashboard',
       billingAddressCollection: 'required',
       clientReferenceId: clientReferenceId
     });
@@ -138,6 +138,55 @@ export const updateSubscriptionStatus = async (userId: string, status: string, p
     });
   } catch (error) {
     console.error('Error updating subscription status:', error);
+    throw error;
+  }
+};
+
+// Cancel subscription
+export const cancelSubscription = async (userId: string) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      cancelAtPeriodEnd: true,
+      updatedAt: new Date()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error canceling subscription:', error);
+    throw error;
+  }
+};
+
+// Reactivate subscription
+export const reactivateSubscription = async (userId: string) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      cancelAtPeriodEnd: false,
+      updatedAt: new Date()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error reactivating subscription:', error);
+    throw error;
+  }
+};
+
+// Get billing portal URL
+export const getBillingPortalUrl = async (userId: string) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    const stripeCustomerId = userDoc.data()?.stripeCustomerId;
+
+    if (!stripeCustomerId) {
+      throw new Error('No Stripe customer ID found');
+    }
+
+    // Return URL for client-side redirect
+    return `${window.location.origin}/subscription`;
+  } catch (error) {
+    console.error('Error getting billing portal URL:', error);
     throw error;
   }
 };

@@ -12,6 +12,9 @@ import Assistant from './pages/Assistant';
 import Tutorials from './pages/Tutorials';
 import TutorialDetail from './pages/TutorialDetail';
 import LearningGoals from './pages/LearningGoals';
+import UserProfile from './pages/UserProfile';
+import UserSettings from './pages/UserSettings';
+import UserSubscription from './pages/UserSubscription';
 import { PostProvider } from './context/PostContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -103,6 +106,30 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <LearningGoals />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/profile" 
+                  element={
+                    <ProtectedRoute>
+                      <UserProfile />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/subscription" 
+                  element={
+                    <ProtectedRoute>
+                      <UserSubscription />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/settings" 
+                  element={
+                    <ProtectedRoute>
+                      <UserSettings />
                     </ProtectedRoute>
                   } 
                 />

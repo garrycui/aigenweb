@@ -71,6 +71,36 @@ const Navbar = () => {
                 >
                   Assessment
                 </Link>
+                <Link
+                  to="/profile"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  Profile
+                </Link>
+                <Link
+                  to="/subscription"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  Subscription
+                </Link>
+                <Link
+                  to="/settings"
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  Settings
+                </Link>
                 <button
                   onClick={() => {
                     handleSignOut();
