@@ -1,9 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { MessageSquare, ThumbsUp, Clock, Share2, Bookmark, ArrowLeft } from 'lucide-react';
-import { fetchPost, createComment, createReply, toggleLike } from '../lib/api';
+import { 
+  MessageSquare, ThumbsUp, Clock, Share2, Bookmark, ArrowLeft,
+  MoreVertical, Edit, Trash2, Reply 
+} from 'lucide-react';
+import { 
+  fetchPost, createComment, createReply, toggleLike,
+  updatePost, deletePost, updateComment, deleteComment,
+  updateReply, deleteReply 
+} from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import ReactMarkdown from 'react-markdown';
+import EditPostModal from '../components/EditPostModal';
+import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
+import EditCommentModal from '../components/EditCommentModal';
 
 interface Reply {
   id: string;
@@ -56,6 +66,21 @@ const PostDetail = () => {
   const [replyContent, setReplyContent] = useState<string>("");
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Edit/Delete state
+  const [isEditPostModalOpen, setIsEditPostModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteType, setDeleteType] = useState<'post' | 'comment' | 'reply'>('post');
+  const [deleteItemId, setDeleteItemId] = useState<string>('');
+  const [deleteCommentId, setDeleteCommentId] = useState<string>('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditCommentModalOpen, setIsEditCommentModalOpen] = useState(false);
+  const [editingComment, setEditingComment] = useState<{
+    id: string;
+    content: string;
+    type: 'comment' | 'reply';
+    commentId?: string;
+  } | null>(null);
 
   const formatDate = (timestamp: any): string => {
     if (!timestamp) return '';
@@ -165,6 +190,67 @@ const PostDetail = () => {
     }
   };
 
+  const handleEditPost = async (updates: { title: string; content: string; category: string }) => {
+    if (!user || !post) return;
+    try {
+      await updatePost(post.id, user.id, updates);
+      await loadPost(); // Reload post to show updates
+    } catch (error) {
+      console.error('Error updating post:', error);
+      throw error;
+    }
+  };
+
+  const handleDeletePost = async () => {
+    if (!user || !post) return;
+    try {
+      setIsDeleting(true);
+      await deletePost(post.id, user.id);
+      navigate('/forum');
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      throw error;
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleEditComment = async (content: string) => {
+    if (!user || !post || !editingComment) return;
+    try {
+      if (editingComment.type === 'comment') {
+        await updateComment(post.id, editingComment.id, user.id, content);
+      } else {
+        if (!editingComment.commentId) return;
+        await updateReply(post.id, editingComment.commentId, editingComment.id, user.id, content);
+      }
+      await loadPost(); // Reload post to show updates
+    } catch (error) {
+      console.error('Error updating comment:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteComment = async () => {
+    if (!user || !post || !deleteItemId) return;
+    try {
+      setIsDeleting(true);
+      if (deleteType === 'comment') {
+        await deleteComment(post.id, deleteItemId, user.id);
+      } else {
+        if (!deleteCommentId) return;
+        await deleteReply(post.id, deleteCommentId, deleteItemId, user.id);
+      }
+      await loadPost(); // Reload post to show updates
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+      throw error;
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -202,9 +288,31 @@ const PostDetail = () => {
             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full">
               {post.category}
             </span>
-            <div className="flex items-center text-gray-500 text-sm">
-              <Clock className="h-4 w-4 mr-1" />
-              {formatDate(post.created_at)}
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center text-gray-500 text-sm">
+                <Clock className="h-4 w-4 mr-1" />
+                {formatDate(post.created_at)}
+              </div>
+              {user && user.id === post.userId && (
+                <div className="relative">
+                  <button
+                    onClick={() => setIsEditPostModalOpen(true)}
+                    className="p-2 text-gray-500 hover:text-indigo-600 rounded-full"
+                  >
+                    <Edit className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDeleteType('post');
+                      setDeleteItemId(post.id);
+                      setIsDeleteModalOpen(true);
+                    }}
+                    className="p-2 text-gray-500 hover:text-red-600 rounded-full"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           
@@ -250,16 +358,10 @@ const PostDetail = () => {
                 <ThumbsUp className={`h-5 w-5 ${post.is_liked ? 'fill-current' : ''}`} />
                 <span>{post.likes_count}</span>
               </button>
-              <button className="flex items-center space-x-1 text-gray-500 hover:text-indigo-600">
+              <div className="flex items-center space-x-1 text-gray-500">
                 <MessageSquare className="h-5 w-5" />
                 <span>{post.comments_count}</span>
-              </button>
-              <button className="flex items-center space-x-1 text-gray-500 hover:text-indigo-600">
-                <Share2 className="h-5 w-5" />
-              </button>
-              <button className="flex items-center space-x-1 text-gray-500 hover:text-indigo-600">
-                <Bookmark className="h-5 w-5" />
-              </button>
+              </div>
             </div>
             <div className="text-sm text-gray-500">
               Posted by <span className="font-medium">{post.user_name}</span>
@@ -267,6 +369,7 @@ const PostDetail = () => {
           </div>
         </div>
 
+        {/* Comments Section */}
         <div className="bg-gray-50 p-6">
           <h3 className="font-medium text-gray-900 mb-4">Comments</h3>
           <div className="space-y-4">
@@ -274,12 +377,32 @@ const PostDetail = () => {
               <CommentSection
                 key={comment.id}
                 comment={comment}
+                postId={post.id}
+                currentUserId={user?.id}
+                onReply={(commentId) => {
+                  setReplyingTo({ commentId });
+                  setReplyContent('');
+                }}
+                onEdit={(comment, type, commentId) => {
+                  setEditingComment({
+                    id: comment.id,
+                    content: comment.content,
+                    type,
+                    commentId
+                  });
+                  setIsEditCommentModalOpen(true);
+                }}
+                onDelete={(itemId, type, commentId) => {
+                  setDeleteType(type);
+                  setDeleteItemId(itemId);
+                  setDeleteCommentId(commentId || '');
+                  setIsDeleteModalOpen(true);
+                }}
                 replyingTo={replyingTo}
-                setReplyingTo={setReplyingTo}
                 replyContent={replyContent}
                 setReplyContent={setReplyContent}
-                handleLike={handleLike}
                 handleReply={handleReply}
+                handleLike={handleLike}
                 formatDate={formatDate}
               />
             ))}
@@ -305,38 +428,95 @@ const PostDetail = () => {
           </div>
         </div>
       </div>
+
+      {/* Modals */}
+      <EditPostModal
+        isOpen={isEditPostModalOpen}
+        onClose={() => setIsEditPostModalOpen(false)}
+        onSave={handleEditPost}
+        initialData={{
+          title: post?.title || '',
+          content: post?.content || '',
+          category: post?.category || ''
+        }}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={deleteType === 'post' ? handleDeletePost : handleDeleteComment}
+        type={deleteType}
+        isDeleting={isDeleting}
+      />
+
+      <EditCommentModal
+        isOpen={isEditCommentModalOpen}
+        onClose={() => {
+          setIsEditCommentModalOpen(false);
+          setEditingComment(null);
+        }}
+        onSave={handleEditComment}
+        initialContent={editingComment?.content || ''}
+        type={editingComment?.type || 'comment'}
+      />
     </div>
   );
 };
 
 interface CommentSectionProps {
   comment: Comment;
+  postId: string;
+  currentUserId?: string;
+  onReply: (commentId: string) => void;
+  onEdit: (item: { id: string; content: string }, type: 'comment' | 'reply', commentId?: string) => void;
+  onDelete: (itemId: string, type: 'comment' | 'reply', commentId?: string) => void;
   replyingTo: ReplyingTo | null;
-  setReplyingTo: React.Dispatch<React.SetStateAction<ReplyingTo | null>>;
   replyContent: string;
   setReplyContent: React.Dispatch<React.SetStateAction<string>>;
-  handleLike: (type: 'post' | 'comment' | 'reply', itemId: string) => Promise<void>;
   handleReply: (commentId: string) => Promise<void>;
+  handleLike: (type: 'post' | 'comment' | 'reply', itemId: string) => Promise<void>;
   formatDate: (timestamp: any) => string;
 }
 
 const CommentSection: React.FC<CommentSectionProps> = ({
   comment,
+  postId,
+  currentUserId,
+  onReply,
+  onEdit,
+  onDelete,
   replyingTo,
-  setReplyingTo,
   replyContent,
   setReplyContent,
-  handleLike,
   handleReply,
+  handleLike,
   formatDate
 }) => (
   <div className="border-l-2 border-gray-200 pl-4">
     <div className="bg-white p-4 rounded-lg">
       <div className="flex justify-between mb-2">
         <span className="font-medium text-gray-900">{comment.user_name}</span>
-        <span className="text-sm text-gray-500">
-          {formatDate(comment.created_at)}
-        </span>
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-gray-500">
+            {formatDate(comment.created_at)}
+          </span>
+          {currentUserId === comment.userId && (
+            <div className="flex space-x-1">
+              <button
+                onClick={() => onEdit(comment, 'comment')}
+                className="p-1 text-gray-500 hover:text-indigo-600 rounded"
+              >
+                <Edit className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => onDelete(comment.id, 'comment')}
+                className="p-1 text-gray-500 hover:text-red-600 rounded"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <p className="text-gray-600 mb-2">{comment.content}</p>
       <div className="flex items-center space-x-4">
@@ -356,9 +536,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
           {comment.likes_count}
         </button>
         <button
-          onClick={() => setReplyingTo({ commentId: comment.id })}
+          onClick={() => onReply(comment.id)}
           className="text-sm text-gray-500 hover:text-indigo-600"
         >
+          <Reply className="h-4 w-4 inline mr-1" />
           Reply
         </button>
       </div>
@@ -374,7 +555,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
           />
           <div className="flex justify-end space-x-2 mt-2">
             <button
-              onClick={() => setReplyingTo(null)}
+              onClick={() => onReply('')}
               className="text-sm text-gray-500 hover:text-gray-700"
             >
               Cancel
@@ -396,9 +577,27 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             <div key={reply.id} className="bg-gray-50 p-3 rounded-lg">
               <div className="flex justify-between mb-1">
                 <span className="font-medium text-gray-900">{reply.user_name}</span>
-                <span className="text-sm text-gray-500">
-                  {formatDate(reply.created_at)}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500">
+                    {formatDate(reply.created_at)}
+                  </span>
+                  {currentUserId === reply.userId && (
+                    <div className="flex space-x-1">
+                      <button
+                        onClick={() => onEdit(reply, 'reply', comment.id)}
+                        className="p-1 text-gray-500 hover:text-indigo-600 rounded"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => onDelete(reply.id, 'reply', comment.id)}
+                        className="p-1 text-gray-500 hover:text-red-600 rounded"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               <p className="text-gray-600">{reply.content}</p>
               <button

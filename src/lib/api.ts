@@ -18,11 +18,9 @@ import { db } from './firebase';
 
 // Calculate AI preference based on assessment answers
 const calculateAIPreference = (answers: any[]) => {
-  // Get answers for questions 5 and 6 (AI-specific questions)
   const aiToolResponse = answers.find(a => a.question_id === 5)?.answer || '';
   const aiImpactResponse = answers.find(a => a.question_id === 6)?.answer || '';
   
-  // Score mapping for question 5 (AI tool response)
   const toolScores: { [key: string]: number } = {
     "Dive right in and experiment": 4,
     "Wait for a training session": 3,
@@ -30,7 +28,6 @@ const calculateAIPreference = (answers: any[]) => {
     "Prefer to avoid using it unless necessary": 1
   };
 
-  // Score mapping for question 6 (AI impact feeling)
   const impactScores: { [key: string]: number } = {
     "Excited about the possibilities": 4,
     "Cautiously optimistic": 3,
@@ -42,7 +39,6 @@ const calculateAIPreference = (answers: any[]) => {
   const impactScore = impactScores[aiImpactResponse] || 2;
   const averageScore = (toolScore + impactScore) / 2;
 
-  // Determine AI preference category
   if (averageScore >= 3.5) return 'enthusiastic';
   if (averageScore >= 2.5) return 'optimistic';
   if (averageScore >= 1.5) return 'cautious';
@@ -54,7 +50,6 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
   try {
     const aiPreference = calculateAIPreference(assessmentData.answers);
 
-    // Create assessment document
     const assessmentRef = await addDoc(collection(db, 'assessments'), {
       userId: userId,
       mbti_type: assessmentData.mbti_type,
@@ -62,7 +57,6 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
       createdAt: serverTimestamp()
     });
 
-    // Add answers as subcollection
     const answers = assessmentData.answers || [];
     await Promise.all(answers.map(async (answer: any) => {
       await addDoc(collection(db, 'assessments', assessmentRef.id, 'answers'), {
@@ -79,7 +73,6 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
   }
 };
 
-// Get latest assessment results
 export const getLatestAssessment = async (userId: string) => {
   try {
     const assessmentsRef = collection(db, 'assessments');
@@ -99,7 +92,6 @@ export const getLatestAssessment = async (userId: string) => {
     const answersRef = collection(db, 'assessments', assessmentDoc.id, 'answers');
     const answersSnapshot = await getDocs(answersRef);
 
-    // Cast the data to include mbti_type and ai_preference
     const rawData = assessmentDoc.data() as {
       userId: string;
       mbti_type: string;
@@ -125,16 +117,14 @@ export const getLatestAssessment = async (userId: string) => {
 
 // Forum Functions
 export const fetchPosts = async (
-	sortBy: 'date' | 'likes' | 'comments' = 'date',
-	page: number = 1
+  sortBy: 'date' | 'likes' | 'comments' = 'date',
+  page: number = 1
 ) => {
   try {
     const postsRef = collection(db, 'posts');
-    // Remove date filtering; query all posts
     const q = query(postsRef);
     const querySnapshot = await getDocs(q);
 
-    // Get posts with engagement metrics
     const posts = await Promise.all(querySnapshot.docs.map(async (postDoc) => {
       const data = postDoc.data();
       const commentsSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'comments'));
@@ -151,7 +141,6 @@ export const fetchPosts = async (
       };
     }));
 
-    // Sort posts based on sortBy param
     let sortedPosts = posts;
     if (sortBy === 'date') {
       sortedPosts = posts.sort((a, b) => {
@@ -165,7 +154,6 @@ export const fetchPosts = async (
       sortedPosts = posts.sort((a, b) => b.comments_count - a.comments_count);
     }
 
-    // Pagination: 10 posts per page
     const start = (page - 1) * 10;
     const pagedPosts = sortedPosts.slice(start, start + 10);
     return { data: pagedPosts };
@@ -186,23 +174,19 @@ export const fetchPost = async (postId: string) => {
 
     const postData = postDoc.data();
 
-    // Get comments
     const commentsRef = collection(db, 'posts', postId, 'comments');
     const commentsSnapshot = await getDocs(query(commentsRef, orderBy('createdAt', 'desc')));
     
     const comments = await Promise.all(commentsSnapshot.docs.map(async commentDoc => {
       const commentData = commentDoc.data();
       
-      // Get replies for each comment
       const repliesRef = collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies');
       const repliesSnapshot = await getDocs(query(repliesRef, orderBy('createdAt', 'desc')));
       
-      // Get comment likes
       const commentLikesSnapshot = await getDocs(collection(db, 'posts', postId, 'comments', commentDoc.id, 'likes'));
       
       const replies = await Promise.all(repliesSnapshot.docs.map(async replyDoc => {
         const replyData = replyDoc.data();
-        // Get reply likes
         const replyLikesSnapshot = await getDocs(
           collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies', replyDoc.id, 'likes')
         );
@@ -228,7 +212,6 @@ export const fetchPost = async (postId: string) => {
       };
     }));
 
-    // Get post likes
     const likesSnapshot = await getDocs(collection(db, 'posts', postId, 'likes'));
 
     const post = {
@@ -273,12 +256,10 @@ export const createPost = async (userId: string, userName: string, title: string
     const userDoc = await getDoc(userRef);
 
     if (!userDoc.exists()) {
-      // Create user document if it does not exist
       await setDoc(userRef, {
         publishedPosts: [postRef.id]
       });
     } else {
-      // Update user document to mark the post as published
       await updateDoc(userRef, {
         publishedPosts: arrayUnion(postRef.id)
       });
@@ -287,6 +268,84 @@ export const createPost = async (userId: string, userName: string, title: string
     return { data: { id: postRef.id } };
   } catch (error) {
     console.error('Error creating post:', error);
+    throw error;
+  }
+};
+
+export const updatePost = async (postId: string, userId: string, updates: {
+  title?: string;
+  content?: string;
+  category?: string;
+  image_url?: string;
+  video_url?: string;
+}) => {
+  try {
+    const postRef = doc(db, 'posts', postId);
+    const postDoc = await getDoc(postRef);
+
+    if (!postDoc.exists()) {
+      throw new Error('Post not found');
+    }
+
+    if (postDoc.data().userId !== userId) {
+      throw new Error('Unauthorized to edit this post');
+    }
+
+    await updateDoc(postRef, {
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating post:', error);
+    throw error;
+  }
+};
+
+export const deletePost = async (postId: string, userId: string) => {
+  try {
+    const postRef = doc(db, 'posts', postId);
+    const postDoc = await getDoc(postRef);
+
+    if (!postDoc.exists()) {
+      throw new Error('Post not found');
+    }
+
+    if (postDoc.data().userId !== userId) {
+      throw new Error('Unauthorized to delete this post');
+    }
+
+    // Delete all comments and their replies
+    const commentsRef = collection(db, 'posts', postId, 'comments');
+    const commentsSnapshot = await getDocs(commentsRef);
+    
+    await Promise.all(commentsSnapshot.docs.map(async (commentDoc) => {
+      // Delete all replies for this comment
+      const repliesRef = collection(commentsRef, commentDoc.id, 'replies');
+      const repliesSnapshot = await getDocs(repliesRef);
+      await Promise.all(repliesSnapshot.docs.map(replyDoc => deleteDoc(replyDoc.ref)));
+      
+      // Delete the comment
+      await deleteDoc(commentDoc.ref);
+    }));
+
+    // Delete the post
+    await deleteDoc(postRef);
+
+    // Remove post ID from user's publishedPosts array
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    if (userDoc.exists()) {
+      const publishedPosts = userDoc.data().publishedPosts || [];
+      await updateDoc(userRef, {
+        publishedPosts: publishedPosts.filter((id: string) => id !== postId)
+      });
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting post:', error);
     throw error;
   }
 };
@@ -305,6 +364,59 @@ export const createComment = async (postId: string, userId: string, userName: st
     return { data: { id: commentRef.id } };
   } catch (error) {
     console.error('Error creating comment:', error);
+    throw error;
+  }
+};
+
+export const updateComment = async (postId: string, commentId: string, userId: string, content: string) => {
+  try {
+    const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+    const commentDoc = await getDoc(commentRef);
+
+    if (!commentDoc.exists()) {
+      throw new Error('Comment not found');
+    }
+
+    if (commentDoc.data().userId !== userId) {
+      throw new Error('Unauthorized to edit this comment');
+    }
+
+    await updateDoc(commentRef, {
+      content,
+      updatedAt: serverTimestamp()
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    throw error;
+  }
+};
+
+export const deleteComment = async (postId: string, commentId: string, userId: string) => {
+  try {
+    const commentRef = doc(db, 'posts', postId, 'comments', commentId);
+    const commentDoc = await getDoc(commentRef);
+
+    if (!commentDoc.exists()) {
+      throw new Error('Comment not found');
+    }
+
+    if (commentDoc.data().userId !== userId) {
+      throw new Error('Unauthorized to delete this comment');
+    }
+
+    // Delete all replies for this comment
+    const repliesRef = collection(commentRef, 'replies');
+    const repliesSnapshot = await getDocs(repliesRef);
+    await Promise.all(repliesSnapshot.docs.map(replyDoc => deleteDoc(replyDoc.ref)));
+
+    // Delete the comment
+    await deleteDoc(commentRef);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting comment:', error);
     throw error;
   }
 };
@@ -330,6 +442,53 @@ export const createReply = async (postId: string, commentId: string, userId: str
   }
 };
 
+export const updateReply = async (postId: string, commentId: string, replyId: string, userId: string, content: string) => {
+  try {
+    const replyRef = doc(db, 'posts', postId, 'comments', commentId, 'replies', replyId);
+    const replyDoc = await getDoc(replyRef);
+
+    if (!replyDoc.exists()) {
+      throw new Error('Reply not found');
+    }
+
+    if (replyDoc.data().userId !== userId) {
+      throw new Error('Unauthorized to edit this reply');
+    }
+
+    await updateDoc(replyRef, {
+      content,
+      updatedAt: serverTimestamp()
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating reply:', error);
+    throw error;
+  }
+};
+
+export const deleteReply = async (postId: string, commentId: string, replyId: string, userId: string) => {
+  try {
+    const replyRef = doc(db, 'posts', postId, 'comments', commentId, 'replies', replyId);
+    const replyDoc = await getDoc(replyRef);
+
+    if (!replyDoc.exists()) {
+      throw new Error('Reply not found');
+    }
+
+    if (replyDoc.data().userId !== userId) {
+      throw new Error('Unauthorized to delete this reply');
+    }
+
+    await deleteDoc(replyRef);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting reply:', error);
+    throw error;
+  }
+};
+
 export const toggleLike = async (type: 'post' | 'comment' | 'reply', id: string, userId: string) => {
   try {
     const likesRef = collection(db, `${type}s`, id, 'likes');
@@ -337,14 +496,12 @@ export const toggleLike = async (type: 'post' | 'comment' | 'reply', id: string,
     const userLikeSnapshot = await getDocs(userLikeQuery);
 
     if (userLikeSnapshot.empty) {
-      // Add like
       await addDoc(likesRef, {
         userId,
         createdAt: serverTimestamp()
       });
       return true;
     } else {
-      // Remove like
       await deleteDoc(userLikeSnapshot.docs[0].ref);
       return false;
     }
@@ -383,7 +540,6 @@ export const searchPosts = async (
       createdAt: any;
     }[];
 
-    // Client-side filtering for search text, if provided
     if (searchQuery) {
       const queryLower = searchQuery.toLowerCase();
       posts = posts.filter(post =>
@@ -393,7 +549,6 @@ export const searchPosts = async (
       );
     }
 
-    // Sort posts based on sortBy param
     if (sortBy === 'date') {
       posts = posts.sort((a, b) => {
         const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
@@ -406,7 +561,6 @@ export const searchPosts = async (
       posts = posts.sort((a, b) => b.comments_count - a.comments_count);
     }
 
-    // Pagination: 10 posts per page
     const start = (page - 1) * 10;
     const pagedPosts = posts.slice(start, start + 10);
     return { data: pagedPosts };
