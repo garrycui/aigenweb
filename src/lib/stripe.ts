@@ -75,7 +75,10 @@ export const getSubscriptionStatus = async (userId: string) => {
 
     const now = new Date();
     const trialEndsAt = userData.trialEndsAt?.toDate();
-    const isTrialing = trialEndsAt ? now < trialEndsAt : false;
+    
+    // Only consider user to be in trial if they don't have an active subscription yet
+    const hasActiveSubscription = userData.subscriptionStatus === 'active' && userData.stripeSubscriptionId;
+    const isTrialing = !hasActiveSubscription && trialEndsAt ? now < trialEndsAt : false;
 
     return {
       isActive: userData.subscriptionStatus === 'active' || isTrialing,

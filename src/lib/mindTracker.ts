@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { doc, collection, addDoc, getDocs, query, where, orderBy, serverTimestamp, limit } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp, limit } from 'firebase/firestore';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -201,7 +201,7 @@ export const getRecommendedResources = async (userId: string, analysis: MoodAnal
   const tutorialsRef = collection(db, 'tutorials');
   const postsRef = collection(db, 'posts');
 
-  let relevantTutorials = [];
+  let relevantTutorials: any[] = [];
   let relevantPosts = [];
 
   // Add tutorial recommendations based on risk level

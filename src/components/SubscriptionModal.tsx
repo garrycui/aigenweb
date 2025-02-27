@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { PLANS, createCheckoutSession } from '../lib/stripe';
 import { useAuth } from '../context/AuthContext';
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
+import TermsModal from '../components/TermsModal';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -11,6 +13,8 @@ interface SubscriptionModalProps {
 
 const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, trialDaysLeft }) => {
   const { user } = useAuth();
+  const [isTermsOpen, setIsTermsOpen] = useState(false);
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -123,12 +127,29 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
             </div>
 
             <div className="mt-8 text-center text-sm text-gray-500">
-              By subscribing, you agree to our Terms of Service and Privacy Policy.
-              You can cancel your subscription at any time.
+              By subscribing, you agree to our{' '}
+              <button 
+                className="text-indigo-600 hover:underline" 
+                onClick={() => setIsTermsOpen(true)}
+              >
+                Terms of Service
+              </button>{' '}
+              and{' '}
+              <button 
+                className="text-indigo-600 hover:underline" 
+                onClick={() => setIsPrivacyOpen(true)}
+              >
+                Privacy Policy
+              </button>
+              . You can cancel your subscription at any time.
             </div>
           </div>
         </div>
       </div>
+      
+      {/* Terms and Privacy Policy Modals */}
+      <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
+      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
     </div>
   );
 };

@@ -36,6 +36,9 @@ interface UserProgress {
 interface PsychRecord {
   id: string;
   rating: number;
+  mood: string;
+  notes: string;
+  tags: string[];
   createdAt: any;
 }
 
@@ -134,12 +137,12 @@ const Dashboard = () => {
   const fetchPsychDataForDashboard = async () => {
     if (!user) return;
     try {
-      const collRef = collection(db, 'users', user.id, 'psychologyRecords');
+      const collRef = collection(db, 'users', user.id, 'moodEntries');
       const q = query(collRef, orderBy('createdAt', 'asc'));
       const snapshot = await getDocs(q);
       const records: PsychRecord[] = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
-        ...(docSnap.data() as { rating: number; createdAt: any }),
+        ...(docSnap.data() as { rating: number; mood: string; notes: string; tags: string[]; createdAt: any }),
       }));
       setPsychRecords(records);
       if (records.length) {

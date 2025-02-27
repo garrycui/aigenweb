@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import ContentModeration from './ContentModeration';
 
 interface EditCommentModalProps {
   isOpen: boolean;
@@ -69,11 +68,6 @@ const EditCommentModal: React.FC<EditCommentModalProps> = ({
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   rows={4}
                   required
-                />
-                <ContentModeration
-                  content={content}
-                  onValidationComplete={setIsContentValid}
-                  type="content"
                 />
               </div>
 
