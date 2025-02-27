@@ -34,11 +34,8 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
       priceId
     });
     
-    console.log('Checkout session response:', response.data);
-    
     // Check if we have a URL directly from the server - use it as fallback
     if (response.data.url) {
-      console.log('Using direct URL from server:', response.data.url);
       window.location.href = response.data.url;
       return;
     }
@@ -69,7 +66,6 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
       
       // Fallback to direct URL if redirect failed and we have a URL
       if (response.data.url) {
-        console.log('Falling back to direct URL:', response.data.url);
         window.location.href = response.data.url;
       } else {
         throw redirectError;

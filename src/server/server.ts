@@ -139,8 +139,6 @@ app.post('/api/create-checkout-session', async (req, res) => {
     const userData = userDoc.data();
     const currentSubscriptionId = userData?.stripeSubscriptionId;
     const currentPlan = userData?.subscriptionPlan;
-    
-    console.log(`Creating checkout for user ${userId}, price ${priceId}, current sub: ${currentSubscriptionId}, current plan: ${currentPlan}`);
 
     // Determine if this is a plan switch
     let isSwitchingPlan = false;
@@ -151,11 +149,6 @@ app.post('/api/create-checkout-session', async (req, res) => {
       try {
         // Get details of the current subscription
         currentSubscriptionDetails = await stripe.subscriptions.retrieve(currentSubscriptionId);
-        console.log('Retrieved current subscription details:', {
-          id: currentSubscriptionDetails.id,
-          currentPeriodEnd: new Date(currentSubscriptionDetails.current_period_end * 1000),
-          status: currentSubscriptionDetails.status
-        });
       } catch (error) {
         console.error('Error retrieving current subscription:', error);
         // Continue even if this fails
@@ -189,11 +182,6 @@ app.post('/api/create-checkout-session', async (req, res) => {
 
     // Create the checkout session
     const session = await stripe.checkout.sessions.create(sessionConfig);
-    
-    console.log('Checkout session created successfully:', { 
-      sessionId: session.id,
-      url: session.url 
-    });
     
     // Send both the ID and URL as a backup
     res.json({ 
@@ -248,23 +236,13 @@ app.post(
         }
 
         console.log('[Webhook] Processing checkout.session.completed');
-        console.log('[Webhook] Client Reference ID:', clientReferenceId);
-        console.log('[Webhook] Customer ID:', customerId);
-        console.log('[Webhook] Subscription ID:', subscriptionId);
-
+        
         const [userId, priceId] = clientReferenceId.split(':');
         
         // Retrieve subscription from Stripe to get its details
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        console.log('[Webhook] Retrieved subscription:', {
-          id: subscription.id,
-          status: subscription.status,
-          start: new Date(subscription.current_period_start * 1000),
-          end: new Date(subscription.current_period_end * 1000)
-        });
         
         const metadata = subscription.metadata || {};
-        console.log('[Webhook] Subscription metadata:', metadata);
         
         // Check if this is a plan switch
         const isSwitchingPlan = metadata.isSwitchingPlan === 'true';
@@ -276,7 +254,6 @@ app.post(
           
           try {
             // Mark the old subscription as being switched
-            // This prevents the subscription.deleted webhook from marking it as expired
             await stripe.subscriptions.update(oldSubscriptionId, {
               metadata: { 
                 isSwitchingPlan: 'true',
@@ -286,7 +263,6 @@ app.post(
             
             // Then cancel it
             await stripe.subscriptions.cancel(oldSubscriptionId);
-            console.log(`[Webhook] Successfully cancelled old subscription`);
           } catch (error) {
             console.error('[Webhook] Error cancelling old subscription:', error);
             // Continue even if this fails
@@ -301,11 +277,9 @@ app.post(
         if (priceId === PLANS.MONTHLY.id) {
           plan = 'monthly';
           subscriptionEnd = new Date(subscription.current_period_end * 1000);
-          console.log('[Webhook] Identified as Monthly plan');
         } else if (priceId === PLANS.ANNUAL.id) {
           plan = 'annual';
           subscriptionEnd = new Date(subscription.current_period_end * 1000);
-          console.log('[Webhook] Identified as Annual plan');
         } else {
           console.error('[Webhook] Invalid price ID:', priceId);
           res.status(400).send('Invalid price ID');
@@ -313,8 +287,6 @@ app.post(
         }
 
         // Update user in Firestore with new subscription details
-        console.log(`[Webhook] Updating user ${userId} with active subscription`);
-        
         const userRef = doc(db, 'users', userId);
         await updateDoc(userRef, {
           stripeCustomerId: customerId,
@@ -328,7 +300,6 @@ app.post(
           updatedAt: new Date()
         });
         
-        console.log('[Webhook] Firestore update completed successfully');
         break;
       }
 
@@ -355,8 +326,7 @@ app.post(
                              subscription.status === 'trialing' ? 'active' : 'inactive',
           updatedAt: new Date()
         });
-
-        console.log('[Webhook] Subscription update processed successfully');
+        
         break;
       }
 
@@ -380,18 +350,14 @@ app.post(
 
         // Only update Firestore if this isn't part of a plan switch
         if (!isSwitchingPlan) {
-          console.log(`[Webhook] Regular cancellation - marking subscription as expired`);
           const userRef = doc(db, 'users', userId);
           await updateDoc(userRef, {
             subscriptionStatus: 'expired',
             stripeSubscriptionId: null,
             updatedAt: new Date()
           });
-        } else {
-          console.log(`[Webhook] Plan switch - ignoring subscription deletion for Firestore update`);
         }
-
-        console.log('[Webhook] Subscription deletion processed successfully');
+        
         break;
       }
     }
