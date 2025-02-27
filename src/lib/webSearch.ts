@@ -21,21 +21,6 @@ const openai = new OpenAI({
 // Search using ChatGPT's browsing capability
 export const searchWeb = async (query: string, limit: number = 3): Promise<SearchResult[]> => {
   try {
-
-    const messages = [
-      {
-        role: 'system',
-        content: 'You are a web search assistant. Search for relevant content and return both articles and videos.'
-      },
-      {
-        role: 'user',
-        content: `Search for: ${query}\nFind ${limit} most relevant results including both articles and YouTube videos. Format as JSON array with fields: title, url, snippet, type (article/video), thumbnailUrl (for videos), videoId (YouTube ID for videos).`
-      }
-    ];
-    
-    // Print out the messages
-    console.log('Messages:', messages);
-    
     // First, use ChatGPT to search for relevant content
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -57,7 +42,6 @@ export const searchWeb = async (query: string, limit: number = 3): Promise<Searc
     }
 
     const results: SearchResult[] = JSON.parse(response);
-    console.log('Search results:', results);
 
     // Validate and process YouTube video URLs
     return results.map(result => {

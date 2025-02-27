@@ -21,22 +21,59 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
   const [score, setScore] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   const [showFinalReview, setShowFinalReview] = useState(false);
+  const [incorrectAttempts, setIncorrectAttempts] = useState<Record<number, number[]>>({});
 
   const handleAnswerSelect = (answerIndex: number) => {
-    if (selectedAnswers[currentQuestion] !== undefined) return;
-
-    const isCorrect = answerIndex === questions[currentQuestion].correctAnswer;
-    setSelectedAnswers(prev => ({
-      ...prev,
-      [currentQuestion]: answerIndex
-    }));
-    setShowExplanation(prev => ({
-      ...prev,
-      [currentQuestion]: true
-    }));
-
-    if (isCorrect) {
-      setScore(prev => prev + 1);
+    const currentQuestionObj = questions[currentQuestion];
+    const isCorrect = answerIndex === currentQuestionObj.correctAnswer;
+    
+    // If already selected the correct answer, do nothing
+    if (selectedAnswers[currentQuestion] === currentQuestionObj.correctAnswer) {
+      return;
+    }
+    
+    // If selecting an answer for the first time
+    if (selectedAnswers[currentQuestion] === undefined) {
+      setSelectedAnswers(prev => ({
+        ...prev,
+        [currentQuestion]: answerIndex
+      }));
+      setShowExplanation(prev => ({
+        ...prev,
+        [currentQuestion]: true
+      }));
+      
+      if (isCorrect) {
+        setScore(prev => prev + 1);
+      } else {
+        // Track incorrect attempt
+        setIncorrectAttempts(prev => ({
+          ...prev,
+          [currentQuestion]: [...(prev[currentQuestion] || []), answerIndex]
+        }));
+      }
+    } 
+    // If already made an incorrect choice and now selecting the correct answer
+    else if (!isCorrect && selectedAnswers[currentQuestion] !== currentQuestionObj.correctAnswer) {
+      // Track another incorrect attempt
+      setIncorrectAttempts(prev => ({
+        ...prev,
+        [currentQuestion]: [...(prev[currentQuestion] || []), answerIndex]
+      }));
+      setSelectedAnswers(prev => ({
+        ...prev,
+        [currentQuestion]: answerIndex
+      }));
+    } 
+    // If selecting the correct answer after previous incorrect attempt(s)
+    else if (isCorrect && selectedAnswers[currentQuestion] !== currentQuestionObj.correctAnswer) {
+      setSelectedAnswers(prev => ({
+        ...prev,
+        [currentQuestion]: answerIndex
+      }));
+      // Award partial credit for eventually getting it right
+      // (Not incrementing the full score since it wasn't first try)
+      setScore(prev => prev + 0.5);
     }
   };
 
@@ -156,6 +193,7 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
   const currentQ = questions[currentQuestion];
   const selectedAnswer = selectedAnswers[currentQuestion];
   const showingExplanation = showExplanation[currentQuestion];
+  const incorrectOptions = incorrectAttempts[currentQuestion] || [];
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
@@ -182,33 +220,44 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
         {currentQ.options.map((option, index) => {
           const isSelected = selectedAnswer === index;
           const isCorrect = index === currentQ.correctAnswer;
-          const showResult = isSelected || (showingExplanation && isCorrect);
+          const wasIncorrect = incorrectOptions.includes(index);
+          const showResult = showingExplanation && (isSelected || isCorrect);
+          const canStillSelect = showingExplanation && !isCorrect && !wasIncorrect && selectedAnswer !== currentQ.correctAnswer;
 
           return (
             <button
               key={index}
               onClick={() => handleAnswerSelect(index)}
-              disabled={selectedAnswer !== undefined}
+              disabled={showingExplanation && (isCorrect || wasIncorrect || selectedAnswer === currentQ.correctAnswer)}
               className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-200 ${
-                !showResult
-                  ? 'border-gray-200 hover:border-indigo-600 hover:bg-indigo-50'
+                !showResult && !wasIncorrect
+                  ? canStillSelect
+                    ? 'border-indigo-300 bg-indigo-50 hover:border-indigo-600'
+                    : 'border-gray-200 hover:border-indigo-600 hover:bg-indigo-50'
                   : isCorrect
                   ? 'border-green-500 bg-green-50'
-                  : isSelected
+                  : isSelected || wasIncorrect
                   ? 'border-red-500 bg-red-50'
-                  : 'border-gray-200 opacity-50'
+                  : showingExplanation && !canStillSelect
+                  ? 'border-gray-200 opacity-50'
+                  : 'border-gray-200'
               }`}
             >
               <div className="flex items-center justify-between">
                 <span>{option}</span>
-                {showResult && (
+                {showResult ? (
                   isCorrect ? (
                     <CheckCircle className="h-5 w-5 text-green-500" />
                   ) : (
                     isSelected && <XCircle className="h-5 w-5 text-red-500" />
                   )
+                ) : (
+                  wasIncorrect && <XCircle className="h-5 w-5 text-red-500" />
                 )}
               </div>
+              {showingExplanation && canStillSelect && (
+                <p className="text-xs mt-1 text-indigo-600">You can still select this answer</p>
+              )}
             </button>
           );
         })}
@@ -216,25 +265,32 @@ const Quiz: React.FC<QuizProps> = ({ questions, onComplete }) => {
 
       {showingExplanation && (
         <div className={`p-4 rounded-lg mb-6 ${
-          selectedAnswer === currentQ.correctAnswer ? 'bg-green-50' : 'bg-red-50'
+          selectedAnswer === currentQ.correctAnswer ? 'bg-green-50' : 'bg-indigo-50'
         }`}>
           <div className="flex items-start">
             <AlertCircle className={`h-5 w-5 mr-2 mt-0.5 ${
-              selectedAnswer === currentQ.correctAnswer ? 'text-green-500' : 'text-red-500'
+              selectedAnswer === currentQ.correctAnswer ? 'text-green-500' : 'text-indigo-500'
             }`} />
             <div>
-              <p className={`font-medium ${
-                selectedAnswer === currentQ.correctAnswer ? 'text-green-700' : 'text-red-700'
-              }`}>
-                {selectedAnswer === currentQ.correctAnswer ? 'Correct!' : 'Incorrect'}
-              </p>
+              {selectedAnswer === currentQ.correctAnswer ? (
+                <p className="font-medium text-green-700">Correct!</p>
+              ) : (
+                <div>
+                  <p className="font-medium text-indigo-700">
+                    {incorrectOptions.length > 0 ? "Try again!" : "Incorrect"}
+                  </p>
+                  {incorrectOptions.length > 0 && selectedAnswer !== currentQ.correctAnswer && (
+                    <p className="text-sm text-indigo-600 mt-1">Select the correct answer</p>
+                  )}
+                </div>
+              )}
               <p className="text-gray-600 mt-1">{currentQ.explanation}</p>
             </div>
           </div>
         </div>
       )}
 
-      {selectedAnswer !== undefined && (
+      {(selectedAnswer === currentQ.correctAnswer || (showingExplanation && incorrectOptions.length >= currentQ.options.length - 1)) && (
         <button
           onClick={handleNextQuestion}
           className="w-full flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"

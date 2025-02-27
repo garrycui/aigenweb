@@ -4,7 +4,6 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, updateDoc, collection, getDocs, query, where, getDoc } from 'firebase/firestore';
 import cron from 'node-cron';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
 const app = express();
 
@@ -117,6 +116,75 @@ app.post('/api/create-portal-session', async (req, res) => {
   }
 });
 
+// API endpoint to create checkout session
+app.post('/api/create-checkout-session', async (req, res) => {
+  try {
+    const { userId, priceId } = req.body;
+    
+    // Get user's current subscription info
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    const userData = userDoc.data();
+    const currentSubscriptionId = userData?.stripeSubscriptionId;
+    const currentPlan = userData?.subscriptionPlan;
+    
+    console.log(`Creating checkout for user ${userId}, price ${priceId}, current sub: ${currentSubscriptionId}, current plan: ${currentPlan}`);
+
+    // Determine if this is a plan switch
+    let isSwitchingPlan = false;
+    let currentSubscriptionDetails = null;
+
+    if (currentSubscriptionId) {
+      isSwitchingPlan = true;
+      try {
+        // Get details of the current subscription
+        currentSubscriptionDetails = await stripe.subscriptions.retrieve(currentSubscriptionId);
+        console.log('Retrieved current subscription details:', {
+          id: currentSubscriptionDetails.id,
+          currentPeriodEnd: new Date(currentSubscriptionDetails.current_period_end * 1000),
+          status: currentSubscriptionDetails.status
+        });
+      } catch (error) {
+        console.error('Error retrieving current subscription:', error);
+        // Continue even if this fails
+      }
+    }
+
+    // Configure the session with proper Stripe types
+    const sessionConfig: Stripe.Checkout.SessionCreateParams = {
+      payment_method_types: ['card'],
+      line_items: [{
+        price: priceId,
+        quantity: 1
+      }],
+      mode: 'subscription' as Stripe.Checkout.SessionCreateParams.Mode,
+      success_url: `${process.env.VITE_APP_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.VITE_APP_URL}/subscription`,
+      client_reference_id: `${userId}:${priceId}`,
+      subscription_data: {
+        metadata: {
+          userId,
+          isSwitchingPlan: isSwitchingPlan ? 'true' : 'false',
+          oldPlan: currentPlan || 'none',
+          oldSubscriptionId: currentSubscriptionId || 'none',
+        },
+        // Add trial end if needed for proration
+        ...(currentSubscriptionDetails && {
+          trial_end: currentSubscriptionDetails.current_period_end
+        })
+      }
+    };
+
+    // Create the checkout session
+    const session = await stripe.checkout.sessions.create(sessionConfig);
+
+    res.json({ id: session.id });
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
 // Webhook endpoint
 app.post(
   '/webhook',
@@ -158,14 +226,50 @@ app.post(
           return;
         }
 
-        const [userId, priceId] = clientReferenceId.split(':');
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        const metadata = subscription.metadata || {};
+        console.log('[Webhook] Processing checkout.session.completed');
+        console.log('[Webhook] Client Reference ID:', clientReferenceId);
+        console.log('[Webhook] Customer ID:', customerId);
+        console.log('[Webhook] Subscription ID:', subscriptionId);
 
-        // Handle plan switch if there's a previous subscription
-        if (metadata.previousSubscriptionId) {
-          // Cancel the old subscription immediately
-          await stripe.subscriptions.cancel(metadata.previousSubscriptionId);
+        const [userId, priceId] = clientReferenceId.split(':');
+        
+        // Retrieve subscription from Stripe to get its details
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        console.log('[Webhook] Retrieved subscription:', {
+          id: subscription.id,
+          status: subscription.status,
+          start: new Date(subscription.current_period_start * 1000),
+          end: new Date(subscription.current_period_end * 1000)
+        });
+        
+        const metadata = subscription.metadata || {};
+        console.log('[Webhook] Subscription metadata:', metadata);
+        
+        // Check if this is a plan switch
+        const isSwitchingPlan = metadata.isSwitchingPlan === 'true';
+        const oldSubscriptionId = metadata.oldSubscriptionId;
+        
+        // If switching plans and there's a previous subscription, cancel it
+        if (isSwitchingPlan && oldSubscriptionId && oldSubscriptionId !== 'none') {
+          console.log(`[Webhook] Handling plan switch. Cancelling old subscription: ${oldSubscriptionId}`);
+          
+          try {
+            // Mark the old subscription as being switched
+            // This prevents the subscription.deleted webhook from marking it as expired
+            await stripe.subscriptions.update(oldSubscriptionId, {
+              metadata: { 
+                isSwitchingPlan: 'true',
+                replacedBySubscriptionId: subscriptionId
+              }
+            });
+            
+            // Then cancel it
+            await stripe.subscriptions.cancel(oldSubscriptionId);
+            console.log(`[Webhook] Successfully cancelled old subscription`);
+          } catch (error) {
+            console.error('[Webhook] Error cancelling old subscription:', error);
+            // Continue even if this fails
+          }
         }
 
         // Determine subscription details
@@ -176,15 +280,20 @@ app.post(
         if (priceId === PLANS.MONTHLY.id) {
           plan = 'monthly';
           subscriptionEnd = new Date(subscription.current_period_end * 1000);
+          console.log('[Webhook] Identified as Monthly plan');
         } else if (priceId === PLANS.ANNUAL.id) {
           plan = 'annual';
           subscriptionEnd = new Date(subscription.current_period_end * 1000);
+          console.log('[Webhook] Identified as Annual plan');
         } else {
+          console.error('[Webhook] Invalid price ID:', priceId);
           res.status(400).send('Invalid price ID');
           return;
         }
 
-        // Update user in Firestore
+        // Update user in Firestore with new subscription details
+        console.log(`[Webhook] Updating user ${userId} with active subscription`);
+        
         const userRef = doc(db, 'users', userId);
         await updateDoc(userRef, {
           stripeCustomerId: customerId,
@@ -193,11 +302,12 @@ app.post(
           subscriptionPlan: plan,
           subscriptionStart,
           subscriptionEnd,
-          isTrialing: false,
-          cancelAtPeriodEnd: false,
+          isTrialing: subscription.status === 'trialing',
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
           updatedAt: new Date()
         });
-
+        
+        console.log('[Webhook] Firestore update completed successfully');
         break;
       }
 
@@ -210,32 +320,57 @@ app.post(
           return;
         }
 
+        console.log('[Webhook] Processing subscription update:', {
+          subscriptionId: subscription.id,
+          status: subscription.status,
+          userId
+        });
+
         const userRef = doc(db, 'users', userId);
         await updateDoc(userRef, {
           subscriptionEnd: new Date(subscription.current_period_end * 1000),
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          subscriptionStatus: subscription.status === 'active' ? 'active' : 
+                             subscription.status === 'trialing' ? 'active' : 'inactive',
           updatedAt: new Date()
         });
 
+        console.log('[Webhook] Subscription update processed successfully');
         break;
       }
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
         const userId = subscription.metadata.userId;
+        
+        // Check if this deletion is part of a plan switch
+        const isSwitchingPlan = subscription.metadata.isSwitchingPlan === 'true';
 
         if (!userId) {
           res.status(400).send('Missing user ID in metadata');
           return;
         }
 
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-          subscriptionStatus: 'expired',
-          stripeSubscriptionId: null,
-          updatedAt: new Date()
+        console.log('[Webhook] Processing subscription deletion:', {
+          subscriptionId: subscription.id,
+          userId,
+          isSwitchingPlan
         });
 
+        // Only update Firestore if this isn't part of a plan switch
+        if (!isSwitchingPlan) {
+          console.log(`[Webhook] Regular cancellation - marking subscription as expired`);
+          const userRef = doc(db, 'users', userId);
+          await updateDoc(userRef, {
+            subscriptionStatus: 'expired',
+            stripeSubscriptionId: null,
+            updatedAt: new Date()
+          });
+        } else {
+          console.log(`[Webhook] Plan switch - ignoring subscription deletion for Firestore update`);
+        }
+
+        console.log('[Webhook] Subscription deletion processed successfully');
         break;
       }
     }
@@ -274,16 +409,14 @@ app.get('/_ah/health', (_req, res) => {
 });
 
 // Serve static files from the dist directory
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, '../dist')));
+app.use(express.static(path.join(__dirname, '../src')));
 
 // Catch-all route to serve index.html for all non-API routes
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+  res.sendFile(path.join(__dirname, '../src/index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Development server is running on port ${PORT}`);
 });

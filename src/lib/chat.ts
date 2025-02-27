@@ -26,12 +26,10 @@ const CACHE_EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 hours
  * Initialize chat history for a user in Firestore.
  */
 const initializeChatDoc = async (userId: string) => {
-  console.log('Initializing chat document for user:', userId);
   const chatRef = doc(db, 'chatHistory', userId);
   const chatDoc = await getDoc(chatRef);
 
   if (!chatDoc.exists()) {
-    console.log('Chat document does not exist, creating new document.');
     await setDoc(chatRef, {
       userId,
       messages: [],
@@ -46,10 +44,8 @@ const initializeChatDoc = async (userId: string) => {
  * Analyze sentiment of a message using vader-sentiment.
  */
 const analyzeSentiment = (message: string): 'positive' | 'negative' | 'neutral' => {
-  console.log('Analyzing sentiment for message:', message);
   if (!message) return 'neutral';
   const intensity = vader.SentimentIntensityAnalyzer.polarity_scores(message);
-  console.log('Sentiment intensity:', intensity);
   if (intensity?.compound >= 0.05) return 'positive';
   if (intensity?.compound <= -0.05) return 'negative';
   return 'neutral';
@@ -59,7 +55,6 @@ const analyzeSentiment = (message: string): 'positive' | 'negative' | 'neutral' 
  * Save chat messages to Firestore.
  */
 export const saveChatMessage = async (userId: string, message: string, role: 'user' | 'assistant') => {
-  console.log('Saving chat message:', { userId, message, role });
   if (!userId || !message || !role) throw new Error('Missing required fields for chat message');
   const chatRef = await initializeChatDoc(userId);
 
@@ -78,7 +73,6 @@ export const saveChatMessage = async (userId: string, message: string, role: 'us
     updatedAt: serverTimestamp()
   });
 
-  console.log('Chat message saved:', messageData);
   return { sentiment: messageData.sentiment };
 };
 
@@ -90,7 +84,6 @@ export const getChatHistory = async (
   limit: number = 20, 
   startAfter?: string
 ): Promise<ChatMessage[]> => {
-  console.log('Retrieving chat history for user:', userId);
   if (!userId) throw new Error('User ID is required');
   
   const chatRef = doc(db, 'chatHistory', userId);
@@ -130,12 +123,10 @@ async function fetchCombinedContent(searchPhrase: string): Promise<Array<{
   content: string;
   type: 'post' | 'tutorial';
 }>>{
-  console.log('Fetching combined content for search phrase:', searchPhrase);
   const now = Date.now();
   
   // Refresh cache every 24 hours
   if (!cachedPosts || !cachedTutorials || !lastCacheUpdate || now - lastCacheUpdate > CACHE_EXPIRATION_TIME) {
-    console.log("Refreshing Firestore cache...");
     const postsRef = collection(db, 'posts');
     const tutorialsRef = collection(db, 'tutorials');
 
@@ -164,7 +155,6 @@ async function fetchCombinedContent(searchPhrase: string): Promise<Array<{
     );
 
     lastCacheUpdate = now;
-    console.log('Cache updated.');
   }
 
   if (!fuse) {
@@ -184,7 +174,6 @@ async function fetchCombinedContent(searchPhrase: string): Promise<Array<{
     content: string;
     type: 'post' | 'tutorial';
   });
-  console.log('Search results:', results);
   return results;
 }
 
@@ -192,8 +181,6 @@ async function fetchCombinedContent(searchPhrase: string): Promise<Array<{
  * Determine if a message has a learning intent or could benefit from resources.
  */
 const determineLearningIntent = async (message: string, chatHistory: ChatMessage[] = []): Promise<"learning" | "other"> => {
-  console.log('Determining learning intent for message:', message);
-  
   // Get last few messages to establish context, could add to the lower context
   const recentMessages = chatHistory.slice(-5);
   const conversationContext = recentMessages.map(msg => msg.content).join(' ');
@@ -219,9 +206,7 @@ const determineLearningIntent = async (message: string, chatHistory: ChatMessage
     lower.includes('help me') ||
     lower.includes('not sure how');
     
-  const intent = (messageHasIntent || contextHasLearningClues) ? "learning" : "other";
-  console.log('Learning intent:', intent);
-  return intent;
+  return (messageHasIntent || contextHasLearningClues) ? "learning" : "other";
 };
 
 /**
@@ -233,23 +218,16 @@ export const processChatMessage = async (userId: string, message: string) => {
       throw new Error('Invalid input: User ID and message are required');
     }
 
-    console.log('Processing chat message:', message);
-
     const { data: assessment } = await getLatestAssessment(userId);
     const mbtiType = assessment?.mbti_type;
     const aiPreference = assessment?.ai_preference;
     const chatHistory = await getChatHistory(userId);
-
-    console.log('User assessment:', { mbtiType, aiPreference });
-    console.log('Chat history:', chatHistory);
 
     const { sentiment } = await saveChatMessage(userId, message, 'user');
 
     // Step 1: Generate AI response and send it
     const aiResponse = await generateChatResponse(message, chatHistory, mbtiType, aiPreference);
     if (!aiResponse || !aiResponse.response) throw new Error('Failed to generate chat response');
-
-    console.log('AI response:', aiResponse.response);
 
     await saveChatMessage(userId, aiResponse.response, 'assistant');
 
@@ -262,15 +240,12 @@ export const processChatMessage = async (userId: string, message: string) => {
 
     // Check if the user has a learning intent (now with chat history)
     const intent = await determineLearningIntent(message, chatHistory);
-    console.log('User intent:', intent);
 
     if (intent === 'learning') {
       // Step 2: Fetch recommendations (titles only) & send a second message
       const searchPhrase = await extractKeyword(message);
-      console.log('Search phrase:', searchPhrase);
 
       const contentItems = await fetchCombinedContent(searchPhrase);
-      console.log('Content items:', contentItems);
 
       if (contentItems.length) {
         const recommendationsText = `Here are some helpful resources:\n` +

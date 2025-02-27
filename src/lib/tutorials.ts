@@ -3,6 +3,7 @@ import { db } from './firebase';
 import { collection, addDoc, query, where, getDocs, orderBy, or, and } from 'firebase/firestore';
 import { getLatestAssessment } from './api';
 import axios from 'axios';
+import { Timestamp } from 'firebase/firestore';
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
@@ -20,7 +21,7 @@ export interface Tutorial {
   likes: number;
   views: number;
   estimatedMinutes: number;
-  createdAt: any;
+  createdAt: Timestamp | Date;
   introImageUrl?: string;
   isCodingTutorial: boolean;
   sections: TutorialSection[];
@@ -29,6 +30,8 @@ export interface Tutorial {
     videos: VideoResource[];
   };
   quiz: QuizData;
+  mbtiType?: string;
+  aiPreference?: string;
 }
 
 export interface TutorialPreview {
@@ -147,10 +150,14 @@ const generateTutorialPrompt = (query: string, difficulty: string, mbtiType?: st
     }
   };
 
-  const guide = difficultyGuides[difficulty as keyof typeof difficultyGuides];
+  // Convert difficulty to lowercase and ensure it's a valid key
+  const normalizedDifficulty = (difficulty || '').toLowerCase() as keyof typeof difficultyGuides;
+  
+  // Default to 'beginner' if the provided difficulty is not valid
+  const guide = difficultyGuides[normalizedDifficulty] || difficultyGuides.beginner;
 
   return `
-    Create a detailed, ${difficulty}-level tutorial about "${query}" for someone with MBTI type ${mbtiType || 'unknown'} 
+    Create a detailed, ${normalizedDifficulty}-level tutorial about "${query}" for someone with MBTI type ${mbtiType || 'unknown'} 
     (Do Not Explicitly Mention MBTI, but Apply in Content Approach)
     who is ${aiPreference || 'learning about'} AI.
 
@@ -170,9 +177,9 @@ const generateTutorialPrompt = (query: string, difficulty: string, mbtiType?: st
     ${guide.codeStyle}
 
     The tutorial should include:
-    1. A clear, engaging title appropriate for ${difficulty} level
+    1. A clear, engaging title appropriate for ${normalizedDifficulty} level
     2. Brief introduction explaining the importance/relevance
-    3. Prerequisites or required tools (aligned with ${difficulty} level)
+    3. Prerequisites or required tools (aligned with ${normalizedDifficulty} level)
     4. Step-by-step instructions with detailed explanations
     5. Best practices and tips
     6. Common pitfalls to avoid
@@ -195,7 +202,7 @@ const generateTutorialPrompt = (query: string, difficulty: string, mbtiType?: st
 };
 
 // Enhanced tutorial generation
-export const generateTutorial = async (userId: string, query: string, difficulty: string) => {
+export const generateTutorial = async (userId: string, query: string, difficulty: string = 'beginner') => {
   try {
     const refinedTitle = await refineTopic(query, difficulty);
     const { data: assessment } = await getLatestAssessment(userId);
@@ -300,7 +307,6 @@ const refineTopic = async (query: string, difficulty: string): Promise<string> =
 // Fetch web resources using Google Custom Search API
 const fetchWebResources = async (query: string): Promise<WebResource[]> => {
   try {
-    console.log('query:', query);
     const sanitizedQuery = query.replace(/^["'](.*)["']$/, '$1');
     const params: any = {
       key: import.meta.env.VITE_GOOGLE_API_KEY,
@@ -308,24 +314,23 @@ const fetchWebResources = async (query: string): Promise<WebResource[]> => {
       q: sanitizedQuery,
       num: 5,
     };
-    console.log('Google Custom Search API params:', params);
 
     const response = await axios.get('https://www.googleapis.com/customsearch/v1', { params });
-    console.log('Google Custom Search API response:', response.data);
 
     if (!response.data.items) {
-      console.log('No items found in the response');
       return [];
     }
 
+    // Default thumbnail for web resources when none is available
+    const defaultThumbnail = "https://placehold.co/600x400?text=No+Image";
+
     return response.data.items.map((item: any) => {
       const resource = {
-        title: item.title,
+        title: item.title || 'Untitled Resource',
         url: item.link,
-        description: item.snippet,
-        thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src,
+        description: item.snippet || 'No description available',
+        thumbnail: item.pagemap?.cse_thumbnail?.[0]?.src || defaultThumbnail,
       };
-      console.log('Resource:', resource);
       return resource;
     });
   } catch (error) {
@@ -469,9 +474,7 @@ const determineCategory = async (title: string, content: string): Promise<string
   });
 
   let categoryResponse = (completion.choices?.[0]?.message?.content ?? '').trim();
-  console.log('Category response from OpenAI:', categoryResponse);
   if (!TUTORIAL_CATEGORIES.includes(categoryResponse)) {
-    console.log('Attempting to find category in response');
     categoryResponse = TUTORIAL_CATEGORIES.find(cat => categoryResponse.includes(cat)) || TUTORIAL_CATEGORIES[0];
   }
   return categoryResponse;
@@ -516,8 +519,43 @@ export const getRecommendedTutorials = async (userId: string, completedTutorialI
     tutorials = tutorials.filter(t => !completedTutorialIds.includes(t.id));
     
     tutorials.sort((a, b) => {
+      // First sort by likes
       if (b.likes !== a.likes) return b.likes - a.likes;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      
+      // Then sort by date, safely handling different date formats
+      try {
+        // Handle Timestamp, Date, or potentially other formats
+        let timeA: number, timeB: number;
+        
+        if (a.createdAt instanceof Timestamp) {
+          timeA = a.createdAt.toDate().getTime();
+        } else if (a.createdAt instanceof Date) {
+          timeA = a.createdAt.getTime();
+        } else if (typeof a.createdAt === 'object' && a.createdAt !== null && 'seconds' in a.createdAt) {
+          // Handle Firestore timestamp object format
+          timeA = new Date((a.createdAt as {seconds: number}).seconds * 1000).getTime();
+        } else {
+          // Default to current time if we can't parse the date
+          timeA = 0;
+        }
+        
+        if (b.createdAt instanceof Timestamp) {
+          timeB = b.createdAt.toDate().getTime();
+        } else if (b.createdAt instanceof Date) {
+          timeB = b.createdAt.getTime();
+        } else if (typeof b.createdAt === 'object' && b.createdAt !== null && 'seconds' in b.createdAt) {
+          // Handle Firestore timestamp object format
+          timeB = new Date((b.createdAt as {seconds: number}).seconds * 1000).getTime();
+        } else {
+          // Default to current time if we can't parse the date
+          timeB = 0;
+        }
+        
+        return timeB - timeA;
+      } catch (error) {
+        console.warn('Error comparing dates:', error);
+        return 0; // Keep original order if date comparison fails
+      }
     });
     
     return tutorials.slice(0, limit);

@@ -36,6 +36,7 @@ const TutorialDetail = () => {
   const [currentResourceIndex, setCurrentResourceIndex] = useState(0);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [currentWebIndex, setCurrentWebIndex] = useState(0);
+  const [allSectionsCompleted, setAllSectionsCompleted] = useState(false);
 
   const handlePrevResource = () => {
     if (!tutorial) return;
@@ -94,19 +95,40 @@ const TutorialDetail = () => {
           views: increment(1)
         });
 
+        const tutorialData = tutorialDoc.data() as Tutorial;
+
         // Get user's interaction status if logged in
         if (user) {
           const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', id);
           const userInteractionDoc = await getDoc(userInteractionRef);
+          
           if (userInteractionDoc.exists()) {
             const data = userInteractionDoc.data();
             setIsLiked(data.liked || false);
             setIsBookmarked(data.bookmarked || false);
             setCompletedSections(data.completedSections || []);
             setTimeSpent(data.timeSpent || 0);
+            
+            // If quiz answers exist, restore them
+            if (data.quizAnswers) {
+              setQuizAnswers(data.quizAnswers);
+              setQuizScore(data.quizScore || null);
+            }
+            
+            // Check if all sections are completed
+            const allCompleted = data.completedSections && 
+              data.completedSections.length === tutorialData.sections.length;
+            setAllSectionsCompleted(allCompleted);
+            
+            // Auto-show quiz if all sections are completed but quiz isn't passed yet
+            if (allCompleted && !data.quizPassed) {
+              setShowQuiz(true);
+            }
 
             // Show the user's first uncompleted section
-            const firstUncompletedSection = tutorialDoc.data().sections.findIndex((_: any, index: number) => !data.completedSections.includes(index));
+            const firstUncompletedSection = tutorialData.sections.findIndex(
+              (_: any, index: number) => !data.completedSections.includes(index)
+            );
             setCurrentSection(firstUncompletedSection !== -1 ? firstUncompletedSection : 0);
           }
 
@@ -120,9 +142,9 @@ const TutorialDetail = () => {
         }
 
         setTutorial({
-          id: tutorialDoc.id,
-          ...tutorialDoc.data()
-        } as Tutorial);
+          ...tutorialData,
+          id: tutorialDoc.id
+        });
       } catch (err) {
         console.error('Error loading tutorial:', err);
         setError('Failed to load tutorial');
@@ -202,27 +224,36 @@ const TutorialDetail = () => {
     try {
       const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
       const userInteractionDoc = await getDoc(userInteractionRef);
-
+      
+      let updatedSections: number[];
       if (!userInteractionDoc.exists()) {
+        updatedSections = [sectionIndex];
         await setDoc(userInteractionRef, {
-          completedSections: [sectionIndex],
+          completedSections: updatedSections,
           timeSpent
         });
       } else {
-        const updatedSections = [...completedSections, sectionIndex];
+        updatedSections = [...completedSections, sectionIndex];
         await updateDoc(userInteractionRef, {
           completedSections: updatedSections,
           timeSpent
         });
-        setCompletedSections(updatedSections);
       }
-
-      // Auto jump to the next uncompleted section
-      const nextSection = tutorial.sections.findIndex((_, index) => ![...completedSections, sectionIndex].includes(index));
-      if (nextSection !== -1) {
-        setCurrentSection(nextSection);
-      } else {
+      
+      setCompletedSections(updatedSections);
+      
+      // Check if all sections are now completed
+      const allCompleted = updatedSections.length === tutorial.sections.length;
+      setAllSectionsCompleted(allCompleted);
+      
+      // Auto jump to the next uncompleted section or show quiz if all completed
+      if (allCompleted) {
         setShowQuiz(true);
+      } else {
+        const nextSection = tutorial.sections.findIndex((_, index) => !updatedSections.includes(index));
+        if (nextSection !== -1) {
+          setCurrentSection(nextSection);
+        }
       }
     } catch (error) {
       console.error('Error marking section as complete:', error);
@@ -230,39 +261,57 @@ const TutorialDetail = () => {
   };
 
   const handleQuizAnswer = async (questionId: number, selectedAnswer: number) => {
-    if (!tutorial) return;
-
+    if (!tutorial || !user) return;
+    
     // Update the quiz answers
-    setQuizAnswers(prev => {
-      const existing = prev.find(a => a.questionId === questionId);
-      if (existing) {
-        // Allow changing answer if it was incorrect
-        if (existing.selectedAnswer !== tutorial.quiz.questions[questionId].correctAnswer) {
-          return prev.map(a => 
-            a.questionId === questionId ? { ...a, selectedAnswer } : a
-          );
-        }
-        return prev; // Keep existing answer if it was correct
-      }
-      return [...prev, { questionId, selectedAnswer }];
-    });
+    const updatedAnswers = [...quizAnswers];
+    const existingIndex = updatedAnswers.findIndex(a => a.questionId === questionId);
+    
+    if (existingIndex >= 0) {
+      updatedAnswers[existingIndex] = { questionId, selectedAnswer };
+    } else {
+      updatedAnswers.push({ questionId, selectedAnswer });
+    }
+    
+    setQuizAnswers(updatedAnswers);
+    
+    // Save quiz progress to Firestore
+    try {
+      const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
+      await updateDoc(userInteractionRef, {
+        quizAnswers: updatedAnswers
+      });
+    } catch (error) {
+      console.error('Error saving quiz progress:', error);
+    }
 
     // Calculate score for this question
     const isCorrect = selectedAnswer === tutorial.quiz.questions[questionId].correctAnswer;
 
-    // If this is the last question and all questions are answered correctly, calculate final score
-    const allQuestionsAnsweredCorrectly = tutorial.quiz.questions.every((question, index) => {
-      const answer = quizAnswers.find(a => a.questionId === index);
-      return (index === questionId && isCorrect) || // Current question is correct
-             (answer && answer.selectedAnswer === question.correctAnswer); // Other questions are correct
+    // If all questions are answered, calculate final score
+    const allQuestionsAnswered = tutorial.quiz.questions.every((_, index) => {
+      return updatedAnswers.some(a => a.questionId === index);
     });
 
-    if (allQuestionsAnsweredCorrectly) {
-      const score = 100; // All answers are correct
+    if (allQuestionsAnswered) {
+      // Calculate score based on correct answers
+      const correctAnswers = tutorial.quiz.questions.reduce((count, question, index) => {
+        const answer = updatedAnswers.find(a => a.questionId === index);
+        return answer && answer.selectedAnswer === question.correctAnswer ? count + 1 : count;
+      }, 0);
+      
+      const score = (correctAnswers / tutorial.quiz.questions.length) * 100;
       setQuizScore(score);
-
-      if (score >= tutorial.quiz.passingScore && user) {
-        try {
+      
+      // Save the score to Firestore
+      try {
+        const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
+        await updateDoc(userInteractionRef, {
+          quizScore: score,
+          quizPassed: score >= tutorial.quiz.passingScore
+        });
+        
+        if (score >= tutorial.quiz.passingScore) {
           const userDocRef = doc(db, 'users', user.id);
           await updateDoc(userDocRef, {
             completedTutorials: arrayUnion(tutorial.id)
@@ -270,9 +319,9 @@ const TutorialDetail = () => {
           setIsCompleted(true);
           setShowCongrats(true);
           setTimeout(() => setShowCongrats(false), 3000);
-        } catch (error) {
-          console.error('Error marking tutorial as completed:', error);
         }
+      } catch (error) {
+        console.error('Error saving quiz results:', error);
       }
     }
   };
@@ -343,68 +392,8 @@ const TutorialDetail = () => {
                 {tutorial.title}
               </h1>
 
-              {/* Section Navigation */}
-              <div className="flex justify-between items-center mb-6">
-                <button
-                  onClick={() => setCurrentSection(prev => Math.max(0, prev - 1))}
-                  disabled={currentSection === 0}
-                  className="flex items-center text-indigo-600 disabled:text-gray-400"
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                  Previous
-                </button>
-                <span className="text-gray-600">
-                  Section {currentSection + 1} of {tutorial.sections.length}
-                </span>
-                <button
-                  onClick={() => setCurrentSection(prev => Math.min(tutorial.sections.length - 1, prev + 1))}
-                  disabled={currentSection === tutorial.sections.length - 1}
-                  className="flex items-center text-indigo-600 disabled:text-gray-400"
-                >
-                  Next
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              </div>
-
-              {/* Current Section Content */}
-              <div className="prose max-w-none mb-6">
-                <h2 className="text-2xl font-bold mb-4">{tutorial.sections[currentSection].title}</h2>
-                <ReactMarkdown
-                  components={{
-                    a: ({node, ...props}) => <a {...props} className="text-blue-600 hover:underline" />
-                  }}
-                >
-                  {tutorial.sections[currentSection].content}
-                </ReactMarkdown>
-              </div>
-
-              {/* Code Example */}
-              {tutorial.sections[currentSection].codeExample && (
-                <div className="mb-6">
-                  <CodeEditor
-                    initialCode={tutorial.sections[currentSection].codeExample}
-                    language={tutorial.sections[currentSection].language || 'javascript'}
-                    readOnly
-                  />
-                </div>
-              )}
-
-              {/* Section Complete Button */}
-              {!completedSections.includes(currentSection) ? (
-                <button
-                  onClick={() => handleSectionComplete(currentSection)}
-                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 mb-6"
-                >
-                  Complete Section
-                </button>
-              ) : (
-                <div className="w-full px-4 py-2 bg-green-100 text-green-800 rounded-lg mb-6 text-center">
-                  Section Completed
-                </div>
-              )}
-
-              {/* Quiz Section */}
-              {showQuiz && (
+              {/* Show either sections or quiz */}
+              {showQuiz ? (
                 <div className="mt-8 border-t pt-8">
                   <h2 className="text-2xl font-bold mb-6">Knowledge Check</h2>
                   <div className="space-y-6">
@@ -498,6 +487,88 @@ const TutorialDetail = () => {
                     )}
                   </div>
                 </div>
+              ) : (
+                <>
+                  {/* Section Navigation */}
+                  <div className="flex justify-between items-center mb-6">
+                    <button
+                      onClick={() => setCurrentSection(prev => Math.max(0, prev - 1))}
+                      disabled={currentSection === 0}
+                      className="flex items-center text-indigo-600 disabled:text-gray-400"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                      Previous
+                    </button>
+                    <span className="text-gray-600">
+                      Section {currentSection + 1} of {tutorial.sections.length}
+                    </span>
+                    <button
+                      onClick={() => setCurrentSection(prev => Math.min(tutorial.sections.length - 1, prev + 1))}
+                      disabled={currentSection === tutorial.sections.length - 1}
+                      className="flex items-center text-indigo-600 disabled:text-gray-400"
+                    >
+                      Next
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  {/* Current Section Content */}
+                  <div className="prose max-w-none mb-6">
+                    <h2 className="text-2xl font-bold mb-4">{tutorial.sections[currentSection].title}</h2>
+                    <ReactMarkdown
+                      components={{
+                        a: ({node, ...props}) => <a {...props} className="text-blue-600 hover:underline" />
+                      }}
+                    >
+                      {tutorial.sections[currentSection].content}
+                    </ReactMarkdown>
+                  </div>
+
+                  {/* Code Example */}
+                  {tutorial.sections[currentSection].codeExample && (
+                    <div className="mb-6">
+                      <CodeEditor
+                        initialCode={tutorial.sections[currentSection].codeExample}
+                        language={tutorial.sections[currentSection].language || 'javascript'}
+                        readOnly
+                      />
+                    </div>
+                  )}
+
+                  {/* Section Complete Button */}
+                  {!completedSections.includes(currentSection) ? (
+                    <button
+                      onClick={() => handleSectionComplete(currentSection)}
+                      className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 mb-6"
+                    >
+                      Complete Section
+                    </button>
+                  ) : (
+                    <div className="w-full px-4 py-2 bg-green-100 text-green-800 rounded-lg mb-6 text-center">
+                      Section Completed
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Show quiz button if all sections are completed but not showing quiz */}
+              {allSectionsCompleted && !showQuiz && !isCompleted && (
+                <button
+                  onClick={() => setShowQuiz(true)}
+                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 mb-6"
+                >
+                  Take Knowledge Check Quiz
+                </button>
+              )}
+              
+              {/* Show return to sections button if viewing quiz */}
+              {showQuiz && (
+                <button
+                  onClick={() => setShowQuiz(false)}
+                  className="w-full mt-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 mb-6"
+                >
+                  Return to Sections
+                </button>
               )}
 
               {/* Action Buttons */}

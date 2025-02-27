@@ -93,7 +93,7 @@ const LearningGoals = () => {
       
       // Generate a tutorial for each topic
       for (const topic of selectedTopics) {
-        await generateTutorial(user.id, topic);
+        await generateTutorial(user.id, topic, 'beginner');
       }
     } catch (err) {
       console.error('Error generating tutorials for goal:', err);

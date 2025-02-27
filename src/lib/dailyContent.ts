@@ -13,7 +13,7 @@ export const generateDailyContent = async (userId: string) => {
     // Generate content using ChatGPT
     const prompt = `Generate an inspiring ${Math.random() > 0.5 ? 'quote' : 'joke'} about AI and technology that would resonate with a ${mbtiType || 'person'} who is ${aiPreference || ''} about AI. Make it encouraging and uplifting.`;
     
-    const { response } = await generateChatResponse(prompt, userId, [], mbtiType, aiPreference);
+    const { response } = await generateChatResponse(prompt, [], mbtiType, aiPreference);
 
     // Save to Firestore
     const content = {
