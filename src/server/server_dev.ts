@@ -6,6 +6,7 @@ import cron from 'node-cron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { CONTENT_CATEGORIES, generateContent, publishContent } from '../lib/contentGenerator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -385,6 +386,82 @@ app.post(
     res.status(200).send('Webhook processed');
   }
 );
+
+// System user ID for auto-generated content
+const SYSTEM_USER_ID = 'ai-content-generator';
+
+// Function to generate content
+async function generateScheduledContent() {
+  console.log('Starting scheduled content generation (DEV)...');
+  try {
+    // Generate content for all categories
+    for (const category of CONTENT_CATEGORIES) {
+      console.log(`Generating content for category: ${category.name}`);
+      
+      // Generate content for this category
+      const content = await generateContent(category);
+      
+      // If we got content, publish up to 2 pieces
+      if (content && content.length > 0) {
+        // Determine how many pieces to publish (up to 2)
+        const countToPublish = Math.min(content.length, 2);
+        
+        for (let i = 0; i < countToPublish; i++) {
+          const postId = await publishContent(content[i], SYSTEM_USER_ID);
+          console.log(`Successfully published content for ${category.name} with ID: ${postId}`);
+          
+          // Add a small delay between posts to prevent rate limiting
+          if (i < countToPublish - 1) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+      } else {
+        console.log(`No content was generated for category: ${category.name}`);
+      }
+      
+      // Add a delay between categories to prevent rate limiting
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    
+    console.log('Content generation completed for all categories');
+  } catch (error) {
+    console.error('Error generating scheduled content:', error);
+  }
+}
+
+// Schedule content generation at noon and midnight Eastern Time
+// For development, we can also add a way to manually trigger generation
+// Eastern Time is UTC-5 (or UTC-4 during DST)
+// 0 4,5 = midnight ET (either 4am or 5am UTC depending on DST)
+// 0 16,17 = noon ET (either 4pm or 5pm UTC depending on DST)
+cron.schedule('0 4,5,16,17 * * *', () => {
+  // Check if this is the right hour for Eastern Time
+  const now = new Date();
+  const estHour = now.getUTCHours() - (now.getTimezoneOffset() / 60 + 5) % 24;
+  
+  // Only run at midnight and noon Eastern Time
+  if (estHour === 0 || estHour === 12) {
+    console.log(`Executing scheduled content generation at ${now.toISOString()}`);
+    generateScheduledContent().catch(error => {
+      console.error('Failed to generate scheduled content:', error);
+    });
+  }
+});
+
+// Add an endpoint to manually trigger content generation (for testing in dev)
+app.post('/api/generate-content', async (req, res) => {
+  try {
+    // Start content generation in the background
+    generateScheduledContent().catch(error => {
+      console.error('Failed to generate content:', error);
+    });
+    
+    res.json({ message: 'Content generation started' });
+  } catch (error) {
+    console.error('Error starting content generation:', error);
+    res.status(500).json({ error: 'Failed to start content generation' });
+  }
+});
 
 // Scheduled job to check for expired subscriptions
 cron.schedule('0 0 * * *', async () => {

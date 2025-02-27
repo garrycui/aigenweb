@@ -11,7 +11,7 @@ import { useReviewPrompt } from '../hooks/useReviewPrompt';
 import { getRecommendedTutorials, Tutorial } from '../lib/tutorials';
 import { getUserBadges, checkAndAwardBadges, Badge } from '../lib/badges';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc, collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, query, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getLatestAssessment } from '../lib/api';
 import GrowthModal from '../components/GrowthModal';
@@ -43,8 +43,8 @@ interface PsychRecord {
 }
 
 const Dashboard = () => {
-  const { showReview, setShowReview } = useReviewPrompt();
-  const [isReviewModalOpen, setIsReviewModalOpen] = useState(showReview);
+  const { showReview, setShowReview, isPeriodic } = useReviewPrompt(); 
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
   const [isBadgesModalOpen, setIsBadgesModalOpen] = useState(false);
   const [isGrowthModalOpen, setIsGrowthModalOpen] = useState(false);
@@ -166,6 +166,29 @@ const Dashboard = () => {
 
   const handleTutorialClick = (tutorialId: string) => {
     navigate(`/tutorials/${tutorialId}`);
+  };
+
+  useEffect(() => {
+    if (showReview) {
+      // Add a slight delay so it doesn't appear immediately on page load
+      const timer = setTimeout(() => {
+        setIsReviewModalOpen(true);
+      }, 2000); // 2 seconds delay for better UX
+      return () => clearTimeout(timer);
+    }
+  }, [showReview]);
+
+  const handleCloseReviewModal = () => {
+    setIsReviewModalOpen(false);
+    setShowReview(false);
+    
+    // Track when a user dismisses without submitting
+    if (user) {
+      const userRef = doc(db, 'users', user.id);
+      updateDoc(userRef, {
+        reviewDismissedAt: serverTimestamp()
+      }).catch(err => console.error('Error updating dismissal time:', err));
+    }
   };
 
   if (isLoading) {
@@ -374,11 +397,9 @@ const Dashboard = () => {
 
       <ReviewModal
         isOpen={isReviewModalOpen}
-        onClose={() => {
-          setIsReviewModalOpen(false);
-          setShowReview(false);
-        }}
+        onClose={handleCloseReviewModal}
         platform="web"
+        isPeriodic={isPeriodic}
       />
 
       <ProgressModal

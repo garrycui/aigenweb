@@ -25,9 +25,15 @@ env_variables:
   STRIPE_WEBHOOK_SECRET: "whsec_lCbsCNbwHFsia1cCuAPgvfT0TfuwFFOE"
 
 handlers:
+  # API routes – send to server
+  - url: /api/.*
+    script: auto
+    secure: always
+
   # Webhook route – handled by your server code
   - url: /webhook
     script: auto
+    secure: always
 
   # Health check route
   - url: /_ah/health
@@ -37,11 +43,21 @@ handlers:
   - url: /(.*\.(css|js|png|jpg|svg|ico|mp4|html))$
     static_files: dist/\1
     upload: dist/.*\.(css|js|png|jpg|svg|ico|mp4|html)$
+    secure: always
+    http_headers:
+      X-Content-Type-Options: nosniff
+      X-Frame-Options: DENY
+      X-XSS-Protection: '1; mode=block'
 
   # Catch-all handler for client-side routes
   - url: /.*
     static_files: dist/index.html
     upload: dist/index.html
+    secure: always
+    http_headers:
+      X-Content-Type-Options: nosniff
+      X-Frame-Options: DENY
+      X-XSS-Protection: '1; mode=block'
 
 automatic_scaling:
   target_cpu_utilization: 0.65

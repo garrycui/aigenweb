@@ -1,28 +1,33 @@
 import { useState, useEffect } from 'react';
+import { shouldShowReview, shouldShowPeriodicReview } from '../lib/reviews';
 import { useAuth } from '../context/AuthContext';
-import { shouldShowReview } from '../lib/reviews';
 
 export const useReviewPrompt = () => {
-  const { user } = useAuth();
   const [showReview, setShowReview] = useState(false);
+  const [isPeriodic, setIsPeriodic] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
-    const checkReviewStatus = async () => {
-      if (!user) return;
+    if (!user) return;
 
-      try {
-        const shouldShow = await shouldShowReview(user.id);
-        setShowReview(shouldShow);
-      } catch (error) {
-        console.error('Error checking review status:', error);
+    const checkReviewStatus = async () => {
+      // First check for periodic review
+      const shouldShowPeriodic = await shouldShowPeriodicReview(user.id);
+      
+      if (shouldShowPeriodic) {
+        setShowReview(true);
+        setIsPeriodic(true);
+        return;
       }
+      
+      // If not due for a periodic review, check for initial review
+      const shouldShowInitial = await shouldShowReview(user.id);
+      setShowReview(shouldShowInitial);
+      setIsPeriodic(false);
     };
 
     checkReviewStatus();
   }, [user]);
 
-  return {
-    showReview,
-    setShowReview
-  };
+  return { showReview, setShowReview, isPeriodic };
 };

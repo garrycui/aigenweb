@@ -1,8 +1,8 @@
 import OpenAI from 'openai';
 import { config } from 'dotenv';
-import { fetchTrendingTopics } from './trendingTopics.ts';
-import { fetchYouTubeVideos, rankVideos } from './youtubeData.ts';
-import { getPexelsImage } from './imageAPI.ts';
+import { fetchTrendingTopics } from './trendingTopics.js';
+import { fetchYouTubeVideos, rankVideos } from './youtubeData.js';
+import { getPexelsImage } from './imageAPI.js';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 config();

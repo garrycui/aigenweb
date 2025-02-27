@@ -4,6 +4,12 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, updateDoc, collection, getDocs, query, where, getDoc } from 'firebase/firestore';
 import cron from 'node-cron';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { CONTENT_CATEGORIES, generateContent, publishContent } from '../lib/contentGenerator.js';
+
+// Create __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -121,6 +127,12 @@ app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const { userId, priceId } = req.body;
     
+    if (!userId || !priceId) {
+      console.error('Missing required parameters:', { userId, priceId });
+      res.status(400).json({ error: 'Missing required parameters' });
+      return;
+    }
+    
     // Get user's current subscription info
     const userRef = doc(db, 'users', userId);
     const userDoc = await getDoc(userRef);
@@ -177,8 +189,17 @@ app.post('/api/create-checkout-session', async (req, res) => {
 
     // Create the checkout session
     const session = await stripe.checkout.sessions.create(sessionConfig);
-
-    res.json({ id: session.id });
+    
+    console.log('Checkout session created successfully:', { 
+      sessionId: session.id,
+      url: session.url 
+    });
+    
+    // Send both the ID and URL as a backup
+    res.json({ 
+      id: session.id,
+      url: session.url
+    });
   } catch (error) {
     console.error('Error creating checkout session:', error);
     res.status(500).json({ error: 'Failed to create checkout session' });
@@ -379,6 +400,66 @@ app.post(
   }
 );
 
+// System user ID for auto-generated content
+const SYSTEM_USER_ID = 'ai-content-generator';
+
+// Function to generate content
+async function generateScheduledContent() {
+  console.log('Starting scheduled content generation...');
+  try {
+    // Generate content for all categories
+    for (const category of CONTENT_CATEGORIES) {
+      console.log(`Generating content for category: ${category.name}`);
+      
+      // Generate content for this category
+      const content = await generateContent(category);
+      
+      // If we got content, publish up to 2 pieces
+      if (content && content.length > 0) {
+        // Determine how many pieces to publish (up to 2)
+        const countToPublish = Math.min(content.length, 2);
+        
+        for (let i = 0; i < countToPublish; i++) {
+          const postId = await publishContent(content[i], SYSTEM_USER_ID);
+          console.log(`Successfully published content for ${category.name} with ID: ${postId}`);
+          
+          // Add a small delay between posts to prevent rate limiting
+          if (i < countToPublish - 1) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+      } else {
+        console.log(`No content was generated for category: ${category.name}`);
+      }
+      
+      // Add a delay between categories to prevent rate limiting
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    
+    console.log('Content generation completed for all categories');
+  } catch (error) {
+    console.error('Error generating scheduled content:', error);
+  }
+}
+
+// Schedule content generation at noon and midnight Eastern Time
+// Eastern Time is UTC-5 (or UTC-4 during DST)
+// 0 4,5 = midnight ET (either 4am or 5am UTC depending on DST)
+// 0 16,17 = noon ET (either 4pm or 5pm UTC depending on DST)
+cron.schedule('0 4,5,16,17 * * *', () => {
+  // Check if this is the right hour for Eastern Time
+  const now = new Date();
+  const estHour = now.getUTCHours() - (now.getTimezoneOffset() / 60 + 5) % 24;
+  
+  // Only run at midnight and noon Eastern Time
+  if (estHour === 0 || estHour === 12) {
+    console.log(`Executing scheduled content generation at ${now.toISOString()}`);
+    generateScheduledContent().catch(error => {
+      console.error('Failed to generate scheduled content:', error);
+    });
+  }
+});
+
 // Scheduled job to check for expired subscriptions
 cron.schedule('0 0 * * *', async () => {
   const now = new Date();
@@ -409,14 +490,14 @@ app.get('/_ah/health', (_req, res) => {
 });
 
 // Serve static files from the dist directory
-app.use(express.static(path.join(__dirname, '../src')));
+app.use(express.static(path.join(__dirname, '../../dist')));
 
 // Catch-all route to serve index.html for all non-API routes
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../src/index.html'));
+  res.sendFile(path.join(__dirname, '../../dist/index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Development server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });

@@ -34,19 +34,46 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
       priceId
     });
     
+    console.log('Checkout session response:', response.data);
+    
+    // Check if we have a URL directly from the server - use it as fallback
+    if (response.data.url) {
+      console.log('Using direct URL from server:', response.data.url);
+      window.location.href = response.data.url;
+      return;
+    }
+    
+    // Otherwise try to use the session ID with Stripe's redirectToCheckout
+    if (!response.data || !response.data.id) {
+      console.error('Invalid checkout session response:', response.data);
+      throw new Error('Server did not return a valid session ID or URL');
+    }
+
     // Then redirect to the checkout using the session ID
     const stripe = await stripePromise;
     if (!stripe) {
       throw new Error('Stripe failed to initialize');
     }
     
-    const { error } = await stripe.redirectToCheckout({
-      sessionId: response.data.id
-    });
+    try {
+      const { error } = await stripe.redirectToCheckout({
+        sessionId: response.data.id
+      });
 
-    if (error) {
-      console.error('Stripe checkout error:', error);
-      throw error;
+      if (error) {
+        console.error('Stripe checkout error:', error);
+        throw error;
+      }
+    } catch (redirectError) {
+      console.error('Redirect to checkout failed:', redirectError);
+      
+      // Fallback to direct URL if redirect failed and we have a URL
+      if (response.data.url) {
+        console.log('Falling back to direct URL:', response.data.url);
+        window.location.href = response.data.url;
+      } else {
+        throw redirectError;
+      }
     }
   } catch (error) {
     console.error('Error creating checkout session:', error);
