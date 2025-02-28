@@ -32,3 +32,6 @@ pnpm-debug.log*
 # System Files
 .DS_Store
 Thumbs.db
+
+# Configuration files with sensitive data
+app.yaml
