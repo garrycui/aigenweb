@@ -189,14 +189,17 @@ const AIChat = () => {
           </div>
         ))}
 
-        {/* Enhanced typing indicator with "thinking" dots */}
+        {/* Enhanced thinking indicator with animated gradient */}
         {(isLoading || isThinking) && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg p-4">
-              <div className="flex space-x-2">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+          <div className="flex justify-start animate-fade-in">
+            <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 shadow-sm">
+              <div className="flex flex-col space-y-1">
+                <div className="flex space-x-2 items-center">
+                  <div className="thinking-dot bg-indigo-400 rounded-full animate-thinking-1"></div>
+                  <div className="thinking-dot bg-indigo-500 rounded-full animate-thinking-2"></div>
+                  <div className="thinking-dot bg-indigo-600 rounded-full animate-thinking-3"></div>
+                </div>
+                <span className="text-xs text-gray-500 pt-1">AI is thinking...</span>
               </div>
             </div>
           </div>
@@ -227,6 +230,42 @@ const AIChat = () => {
           </button>
         </div>
       </form>
+
+      {/* Add custom CSS for thinking animation */}
+      <style>{`
+        .thinking-dot {
+          width: 8px;
+          height: 8px;
+          opacity: 0.7;
+        }
+
+        @keyframes thinking {
+          0% { transform: translateY(0px); opacity: 0.4; }
+          50% { transform: translateY(-5px); opacity: 1; }
+          100% { transform: translateY(0px); opacity: 0.4; }
+        }
+
+        .animate-thinking-1 {
+          animation: thinking 1.2s infinite;
+        }
+        
+        .animate-thinking-2 {
+          animation: thinking 1.2s infinite 0.2s;
+        }
+        
+        .animate-thinking-3 {
+          animation: thinking 1.2s infinite 0.4s;
+        }
+        
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 };

@@ -7,6 +7,7 @@ import ReviewModal from '../components/ReviewModal';
 import TutorialCard from '../components/TutorialCard';
 import ProgressModal from '../components/ProgressModal';
 import BadgesModal from '../components/BadgesModal';
+import Loader from '../components/Loader';
 import { useReviewPrompt } from '../hooks/useReviewPrompt';
 import { getRecommendedTutorials, Tutorial } from '../lib/tutorials';
 import { getUserBadges, checkAndAwardBadges, Badge } from '../lib/badges';
@@ -15,6 +16,7 @@ import { doc, getDoc, collection, getDocs, query, orderBy, updateDoc, serverTime
 import { db } from '../lib/firebase';
 import { getLatestAssessment } from '../lib/api';
 import GrowthModal from '../components/GrowthModal';
+import { motion } from 'framer-motion';
 
 interface UserProgress {
   assessment: boolean;
@@ -193,9 +195,69 @@ const Dashboard = () => {
 
   if (isLoading) {
     return (
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-center items-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="mb-8">
+          <div className="h-8 bg-gray-200 rounded-md w-1/3 mb-4"></div>
+          <div className="h-4 bg-gray-200 rounded-md w-2/3"></div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white p-6 rounded-lg shadow-md animate-pulse">
+              <div className="flex items-center justify-between mb-4">
+                <div className="bg-gray-200 p-3 rounded-lg h-12 w-12"></div>
+                <div className="h-4 bg-gray-200 rounded w-16"></div>
+              </div>
+              <div className="h-6 bg-gray-200 rounded w-16 mb-1"></div>
+              <div className="h-4 bg-gray-200 rounded w-24"></div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-8">
+            <div className="bg-white rounded-lg shadow-md p-6 h-64 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
+              <div className="h-4 bg-gray-200 rounded w-full mb-4"></div>
+              <div className="h-4 bg-gray-200 rounded w-5/6 mb-4"></div>
+              <div className="h-4 bg-gray-200 rounded w-4/6 mb-4"></div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+              <div className="flex justify-between items-center mb-6">
+                <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+                <div className="h-4 bg-gray-200 rounded w-16"></div>
+              </div>
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-24 bg-gray-200 rounded-md"></div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="space-y-8">
+            <div className="bg-white rounded-lg shadow-md p-6 h-96 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
+              <div className="flex justify-center items-center py-16">
+                <Loader variant="neural" text="Loading AI Assistant" />
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
+              <div className="space-y-6 pl-8 relative">
+                <div className="absolute left-4 top-0 h-full w-0.5 bg-gray-200"></div>
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="relative">
+                    <div className="absolute left-0 -ml-6 h-4 w-4 rounded-full bg-gray-200"></div>
+                    <div className="h-4 bg-gray-200 rounded w-5/6 mb-2 ml-2"></div>
+                    <div className="h-3 bg-gray-200 rounded w-1/2 ml-2"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -203,21 +265,31 @@ const Dashboard = () => {
 
   const completionRate = Math.round(
     ((progress.assessment ? 1 : 0) +
-      (progress.goals.set >= progress.goals.total ? 1 : 0) +
-      progress.tutorials.completed / progress.tutorials.total +
-      progress.posts.published / progress.posts.total) /
+      (progress.goals.completed / Math.max(progress.goals.total, 1)) +
+      (progress.tutorials.completed / Math.max(progress.tutorials.total, 1)) +
+      (progress.posts.published / Math.max(progress.posts.total, 1))) /
       4 *
       100
   );
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="mb-8">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }} 
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mb-8"
+      >
         <h1 className="text-2xl font-bold text-gray-900">Your AI Adaptation Journey</h1>
         <p className="text-gray-600 mt-2">Track your progress and access personalized resources</p>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2, duration: 0.5 }}
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8"
+      >
         <button
           onClick={() => setIsProgressModalOpen(true)}
           className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow"
@@ -279,10 +351,15 @@ const Dashboard = () => {
             </p>
           )}
         </button>
-      </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-8">
+        <motion.div 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
+          className="space-y-8"
+        >
           <DailyContent />
           
           <div className="bg-white rounded-lg shadow-md p-6">
@@ -311,9 +388,14 @@ const Dashboard = () => {
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="space-y-8">
+        <motion.div 
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
+          className="space-y-8"
+        >
           <AIChat />
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Learning Path</h2>
@@ -392,7 +474,7 @@ const Dashboard = () => {
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
 
       <ReviewModal

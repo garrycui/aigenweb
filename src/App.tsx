@@ -1,150 +1,221 @@
-import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, Suspense, lazy } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import Login from './pages/Login';
 import Home from './pages/Home';
-import Questionnaire from './pages/Questionnaire';
-import Forum from './pages/Forum';
-import PostDetail from './pages/PostDetail';
-import NewPost from './pages/NewPost';
-import Dashboard from './pages/Dashboard';
-import Assistant from './pages/Assistant';
-import Tutorials from './pages/Tutorials';
-import TutorialDetail from './pages/TutorialDetail';
-import LearningGoals from './pages/LearningGoals';
-import UserProfile from './pages/UserProfile';
-import UserSettings from './pages/UserSettings';
-import UserSubscription from './pages/UserSubscription';
-import { PostProvider } from './context/PostContext';
-import { AuthProvider } from './context/AuthContext';
+import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import TrialBanner from './components/TrialBanner';
 import ExpiredBanner from './components/ExpiredBanner';
 import SubscriptionModal from './components/SubscriptionModal';
+import SubscriptionGuard from './components/SubscriptionGuard';
+import { PostProvider } from './context/PostContext';
+import PageTransition from './components/PageTransition';
+import Loader from './components/Loader';
+
+// Lazy-loaded components
+const Questionnaire = lazy(() => import('./pages/Questionnaire'));
+const Forum = lazy(() => import('./pages/Forum'));
+const PostDetail = lazy(() => import('./pages/PostDetail'));
+const NewPost = lazy(() => import('./pages/NewPost'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Assistant = lazy(() => import('./pages/Assistant'));
+const Tutorials = lazy(() => import('./pages/Tutorials'));
+const TutorialDetail = lazy(() => import('./pages/TutorialDetail'));
+const LearningGoals = lazy(() => import('./pages/LearningGoals'));
+const UserProfile = lazy(() => import('./pages/UserProfile'));
+const UserSettings = lazy(() => import('./pages/UserSettings'));
+const UserSubscription = lazy(() => import('./pages/UserSubscription'));
+
+// Enhanced loading component
+const PageLoader = () => (
+  <div className="flex justify-center items-center min-h-[400px]">
+    <Loader variant="neural" text="Loading" size="lg" />
+  </div>
+);
 
 function App() {
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const location = useLocation();
+
+  // Free routes that don't require subscription check
+  const freeRoutes = ['/', '/login', '/subscription', '/settings', '/profile'];
+  
+  // Check if current path matches any free route
+  const isCurrentRouteFree = freeRoutes.some(route => 
+    location.pathname === route || 
+    (route !== '/' && location.pathname.startsWith(route + '/'))
+  );
 
   return (
-    <AuthProvider>
-      <PostProvider>
-        <Router>
-          <div className="min-h-screen bg-gray-50">
-            <TrialBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
-            <ExpiredBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
-            <Navbar />
-            <main className="container mx-auto px-4 py-8">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/login" element={<Login />} />
-                <Route 
-                  path="/questionnaire" 
-                  element={
-                    <ProtectedRoute>
-                      <Questionnaire />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/forum" 
-                  element={
-                    <ProtectedRoute>
-                      <Forum />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/forum/:id" 
-                  element={
-                    <ProtectedRoute>
-                      <PostDetail />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/forum/new" 
-                  element={
-                    <ProtectedRoute>
-                      <NewPost />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/dashboard" 
-                  element={
-                    <ProtectedRoute>
-                      <Dashboard />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/assistant" 
-                  element={
-                    <ProtectedRoute>
-                      <Assistant />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/tutorials" 
-                  element={
-                    <ProtectedRoute>
-                      <Tutorials />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/tutorials/:id" 
-                  element={
-                    <ProtectedRoute>
-                      <TutorialDetail />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/learning-goals" 
-                  element={
-                    <ProtectedRoute>
-                      <LearningGoals />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/profile" 
-                  element={
-                    <ProtectedRoute>
-                      <UserProfile />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/subscription" 
-                  element={
-                    <ProtectedRoute>
+    <PostProvider>
+      <div className="min-h-screen bg-gray-50">
+        <TrialBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
+        <ExpiredBanner onUpgrade={() => setIsSubscriptionModalOpen(true)} />
+        <Navbar />
+        <main className="container mx-auto px-4 py-8">
+          <PageTransition transition="fade">
+            <Routes location={location}>
+              <Route path="/" element={<Home />} />
+              <Route path="/login" element={<Login />} />
+              <Route 
+                path="/subscription" 
+                element={
+                  <ProtectedRoute>
+                    <Suspense fallback={<PageLoader />}>
                       <UserSubscription />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route 
-                  path="/settings" 
-                  element={
-                    <ProtectedRoute>
+                    </Suspense>
+                  </ProtectedRoute>
+                } 
+              />
+              
+              {/* Protected and subscription-required routes */}
+              <Route 
+                path="/questionnaire" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <Questionnaire />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+
+              {/* Apply SubscriptionGuard to other premium features */}
+              <Route 
+                path="/forum" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <Forum />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/forum/new" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <NewPost />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/forum/:id" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <PostDetail />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <Dashboard />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/assistant" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <Assistant />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/tutorials" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <Tutorials />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/tutorials/:id" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <TutorialDetail />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/learning-goals" 
+                element={
+                  <ProtectedRoute>
+                    <SubscriptionGuard>
+                      <Suspense fallback={<PageLoader />}>
+                        <LearningGoals />
+                      </Suspense>
+                    </SubscriptionGuard>
+                  </ProtectedRoute>
+                } 
+              />
+              
+              {/* These routes are free and don't need subscription guard */}
+              <Route 
+                path="/profile" 
+                element={
+                  <ProtectedRoute>
+                    <Suspense fallback={<PageLoader />}>
+                      <UserProfile />
+                    </Suspense>
+                  </ProtectedRoute>
+                } 
+              />
+              
+              <Route 
+                path="/settings" 
+                element={
+                  <ProtectedRoute>
+                    <Suspense fallback={<PageLoader />}>
                       <UserSettings />
-                    </ProtectedRoute>
-                  } 
-                />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </main>
-            
-            <SubscriptionModal
-              isOpen={isSubscriptionModalOpen}
-              onClose={() => setIsSubscriptionModalOpen(false)}
-            />
-          </div>
-        </Router>
-      </PostProvider>
-    </AuthProvider>
+                    </Suspense>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </PageTransition>
+        </main>
+        
+        <SubscriptionModal
+          isOpen={isSubscriptionModalOpen}
+          onClose={() => setIsSubscriptionModalOpen(false)}
+        />
+        
+        {/* Remove the testing panel */}
+        {/* {process.env.NODE_ENV === 'development' && <TestingPanel />} */}
+      </div>
+    </PostProvider>
   );
 }
 

@@ -1,6 +1,9 @@
 import React from 'react';
-import { Book, Clock, ThumbsUp, Eye, CheckCircle, Code } from 'lucide-react';
+import {CheckCircle, Code } from 'lucide-react';
 import { Tutorial, TutorialPreview } from '../lib/tutorials';
+import { m } from 'framer-motion';
+import { animations } from '../lib/motion';
+import { useAnimation } from './AnimationProvider';
 
 interface TutorialCardProps {
   tutorial: Tutorial | TutorialPreview;
@@ -9,15 +12,45 @@ interface TutorialCardProps {
 }
 
 const TutorialCard: React.FC<TutorialCardProps> = ({ tutorial, onClick, isCompleted = false }) => {
+  const { prefersReducedMotion } = useAnimation();
+  
+  const cardVariants = {
+    hover: {
+      y: prefersReducedMotion ? 0 : -5,
+      boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+      transition: { duration: 0.3 }
+    },
+    tap: {
+      scale: prefersReducedMotion ? 1 : 0.98,
+      transition: { duration: 0.1 }
+    }
+  };
+  
+  const iconVariants = {
+    hover: {
+      rotate: prefersReducedMotion ? 0 : [0, -10, 10, -5, 0],
+      transition: { duration: 0.5 }
+    }
+  };
+
   return (
-    <div 
-      className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-shadow cursor-pointer relative border border-gray-200 overflow-hidden"
+    <m.div 
+      className="bg-white rounded-2xl shadow-lg cursor-pointer relative border border-gray-200 overflow-hidden"
       onClick={() => onClick(tutorial.id)}
+      variants={{...cardVariants, ...animations.fadeIn}}
+      whileHover="hover"
+      whileTap="tap"
+      initial="hidden"
+      animate="visible"
     >
       {isCompleted && (
-        <span className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center z-10">
+        <m.span
+          className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center z-10"
+          variants={iconVariants}
+          whileHover="hover"
+        >
           <CheckCircle className="h-4 w-4 mr-1" /> Completed
-        </span>
+        </m.span>
       )}
       
       {tutorial.introImageUrl && (
@@ -28,69 +61,56 @@ const TutorialCard: React.FC<TutorialCardProps> = ({ tutorial, onClick, isComple
             className="w-full h-full object-cover"
           />
           {tutorial.isCodingTutorial && (
-            <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded-lg flex items-center text-xs">
-              <Code className="h-4 w-4 mr-1" />
-              Code Tutorial
-            </div>
+            <m.div
+              className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded-lg flex items-center text-xs"
+              whileHover={{ scale: prefersReducedMotion ? 1 : 1.1 }}
+            >
+              <Code className="h-3 w-3 mr-1" /> Code Examples
+            </m.div>
           )}
         </div>
       )}
-
-      <div className="p-6">
-        <div className="flex items-center space-x-2 mb-3">
-          <Book className="h-5 w-5 text-indigo-600" />
-          <span className="text-sm font-medium text-indigo-600 uppercase tracking-wide">
-            {tutorial.category}
+      
+      <div className="p-5">
+        <h3 className="font-bold text-gray-900 mb-2 line-clamp-2">{tutorial.title}</h3>
+        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{tutorial.content.slice(0, 100)}...</p>
+        
+        {/* Bottom section */}
+        <div className="flex items-center justify-between">
+          {/* Difficulty badge */}
+          <span className={`text-xs px-2 py-1 rounded-full ${
+            tutorial.difficulty === 'beginner' ? 'bg-green-100 text-green-800' :
+            tutorial.difficulty === 'intermediate' ? 'bg-blue-100 text-blue-800' :
+            'bg-purple-100 text-purple-800'
+          }`}>
+            {(tutorial.difficulty || 'beginner').charAt(0).toUpperCase() + (tutorial.difficulty || 'beginner').slice(1)}
           </span>
+          
+          <span className="text-xs text-gray-500">{tutorial.estimatedMinutes} min</span>
         </div>
-
-        <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2">
-          {tutorial.title}
-        </h3>
-
-        <p className="text-gray-700 text-sm mb-4 line-clamp-3">
-          {tutorial.sections && tutorial.sections.length > 0 ? tutorial.sections[0].content : tutorial.content}
-        </p>
-
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center">
-              <Clock className="h-4 w-4 mr-1" />
-              <span>{tutorial.estimatedMinutes} min</span>
-            </div>
-            <div className="flex items-center">
-              <ThumbsUp className="h-4 w-4 mr-1" />
-              <span>{tutorial.likes}</span>
-            </div>
-            <div className="flex items-center">
-              <Eye className="h-4 w-4 mr-1" />
-              <span>{tutorial.views}</span>
-            </div>
-          </div>
-          <span className="px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-xs font-medium">
-            {tutorial.difficulty}
-          </span>
-        </div>
-
+        
         {tutorial.resources && (tutorial.resources.webLinks.length > 0 || tutorial.resources.videos.length > 0) && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <p className="text-xs text-gray-500 mb-2">Includes:</p>
-            <div className="flex space-x-2">
-              {tutorial.resources.webLinks.length > 0 && (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                  {tutorial.resources.webLinks.length} Resources
-                </span>
-              )}
-              {tutorial.resources.videos.length > 0 && (
-                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
-                  {tutorial.resources.videos.length} Videos
-                </span>
-              )}
-            </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {tutorial.resources.webLinks.length > 0 && (
+              <m.span 
+                className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded"
+                whileHover={{ y: -2 }}
+              >
+                {tutorial.resources.webLinks.length} Resources
+              </m.span>
+            )}
+            {tutorial.resources.videos.length > 0 && (
+              <m.span 
+                className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded"
+                whileHover={{ y: -2 }}
+              >
+                {tutorial.resources.videos.length} Videos
+              </m.span>
+            )}
           </div>
         )}
       </div>
-    </div>
+    </m.div>
   );
 };
 

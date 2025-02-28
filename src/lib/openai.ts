@@ -125,7 +125,6 @@ but do so conversationally rather than immediately listing them.`;
 };
 
 export const extractKeyword = async (message: string): Promise<string> => {
-  console.log("Extracting keyword from:", message);
   if (!message || typeof message !== "string") return "";
 
   const prompt = `
@@ -148,7 +147,6 @@ export const extractKeyword = async (message: string): Promise<string> => {
     });
 
     const keyword = response.choices[0].message?.content?.trim() || "";
-    console.log("Extracted keyword:", keyword);
     return keyword;
   } catch (error) {
     console.error("Error extracting keyword:", error);

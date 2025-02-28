@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Badge, BADGES } from '../lib/badges'; // <-- import BADGES
+import { Badge, BADGES } from '../lib/badges';
 
 interface BadgesModalProps {
   isOpen: boolean;
@@ -9,6 +9,27 @@ interface BadgesModalProps {
 }
 
 const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) => {
+  // Animation states
+  const [isVisible, setIsVisible] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsVisible(true);
+    } else {
+      setIsVisible(false);
+    }
+  }, [isOpen]);
+
+  // Handle modal close with animation
+  const handleClose = () => {
+    setIsExiting(true);
+    setTimeout(() => {
+      onClose();
+      setIsExiting(false);
+    }, 300); // Match transition duration
+  };
+
   if (!isOpen) return null;
 
   const earnedBadgeIds = new Set(badges.map(b => b.id));
@@ -36,12 +57,23 @@ const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) =>
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
+        <div 
+          className={`fixed inset-0 bg-black transition-opacity duration-300 ${
+            isVisible && !isExiting ? 'opacity-50' : 'opacity-0'
+          }`}
+          onClick={handleClose} 
+        />
         
-        <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-auto">
+        <div 
+          className={`relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-auto transition-all duration-300 ${
+            isVisible && !isExiting 
+              ? 'opacity-100 scale-100 translate-y-0' 
+              : 'opacity-0 scale-95 translate-y-4'
+          }`}
+        >
           <div className="absolute right-4 top-4">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-400 hover:text-gray-500"
             >
               <X className="h-6 w-6" />
@@ -59,12 +91,19 @@ const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) =>
                     {groupedBadges[category]?.map((badge) => (
                       <div
                         key={badge.id}
-                        className={`p-4 border rounded-lg transition-colors hover:border-indigo-500 ${
-                          badge.earned ? '' : 'border-gray-300 opacity-50 grayscale'
+                        className={`p-4 border rounded-lg transition-colors hover:border-indigo-500 relative overflow-hidden ${
+                          badge.earned 
+                            ? 'badge-earned border-indigo-300 shadow-md' 
+                            : 'border-gray-300 opacity-50 grayscale'
                         }`}
                       >
-                        <div className="flex items-center space-x-3">
-                          <span className="text-2xl">{badge.icon}</span>
+                        {badge.earned && (
+                          <div className="badge-shine absolute inset-0 pointer-events-none"></div>
+                        )}
+                        <div className="flex items-center space-x-3 relative z-10">
+                          <span className={`text-2xl ${badge.earned ? 'badge-glow' : ''}`}>
+                            {badge.icon}
+                          </span>
                           <div>
                             <h4 className="font-medium text-gray-900">{badge.name}</h4>
                             <p className="text-sm text-gray-600">{badge.description}</p>
@@ -81,6 +120,45 @@ const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, badges }) =>
                 </div>
               ))}
             </div>
+
+            {/* Add CSS for badge effects */}
+            <style>
+              {`
+              @keyframes shine {
+                0% { transform: translateX(-100%) rotate(-45deg); }
+                100% { transform: translateX(100%) rotate(-45deg); }
+              }
+              
+              @keyframes glow {
+                0% { filter: drop-shadow(0 0 2px rgba(99, 102, 241, 0.4)); }
+                50% { filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.7)); }
+                100% { filter: drop-shadow(0 0 2px rgba(99, 102, 241, 0.4)); }
+              }
+              
+              .badge-shine::before {
+                content: '';
+                position: absolute;
+                top: -50%;
+                left: -50%;
+                width: 200%;
+                height: 200%;
+                background: linear-gradient(
+                  to right,
+                  transparent, rgba(255, 255, 255, 0.3), transparent
+                );
+                transform: rotate(45deg);
+                animation: shine 3s infinite;
+              }
+              
+              .badge-earned {
+                background: linear-gradient(to bottom right, #ffffff, #f0f8ff);
+              }
+              
+              .badge-glow {
+                animation: glow 2s infinite;
+              }
+              `}
+            </style>
           </div>
         </div>
       </div>

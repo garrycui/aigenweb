@@ -9,9 +9,15 @@ interface SubscriptionModalProps {
   isOpen: boolean;
   onClose: () => void;
   trialDaysLeft?: number;
+  expiredSubscription?: boolean;
 }
 
-const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, trialDaysLeft }) => {
+const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  trialDaysLeft,
+  expiredSubscription = false
+}) => {
   const { user } = useAuth();
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
@@ -42,35 +48,42 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
+        {/* Modal backdrop */}
+        <div className="fixed inset-0 bg-black opacity-40" onClick={expiredSubscription ? undefined : onClose}></div>
         
-        <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full mx-auto">
-          <div className="absolute right-4 top-4">
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              <X className="h-6 w-6" />
-            </button>
+        {/* Modal content */}
+        <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto z-10">
+          {/* Header */}
+          <div className="flex justify-between items-center p-4 border-b">
+            <h2 className="text-xl font-semibold text-gray-900">
+              {expiredSubscription 
+                ? "Your Subscription Has Expired" 
+                : trialDaysLeft 
+                  ? `${trialDaysLeft} Days Left in Your Trial` 
+                  : "Choose Your Subscription Plan"}
+            </h2>
+            {!expiredSubscription && (
+              <button 
+                onClick={onClose} 
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            )}
           </div>
-
-          <div className="p-8">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-gray-900">
-                {trialDaysLeft ? 'Upgrade Your Experience' : 'Choose Your Plan'}
-              </h2>
-              {trialDaysLeft ? (
-                <p className="mt-2 text-lg text-gray-600">
-                  {trialDaysLeft} days left in your trial. Don't miss out on these amazing features!
+          
+          {/* Modal body */}
+          <div className="p-6">
+            {expiredSubscription && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-red-700 font-medium">
+                  Your subscription has expired. Please renew your subscription to continue accessing all features.
                 </p>
-              ) : (
-                <p className="mt-2 text-lg text-gray-600">
-                  Start your {PLANS.MONTHLY.trialDays}-day free trial today. Cancel anytime.
-                </p>
-              )}
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-8">
+              </div>
+            )}
+            
+            {/* Plan options */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Monthly Plan */}
               <div className="border rounded-lg p-6 hover:border-indigo-600 transition-colors">
                 <h3 className="text-xl font-semibold mb-2">{PLANS.MONTHLY.name}</h3>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Star, X, MessageSquare, CheckCircle2, ThumbsUp } from 'lucide-react';
-import { saveReview, getStoreReviewUrl } from '../lib/reviews';
+import React, { useState, useEffect } from 'react';
+import { Star, X, MessageSquare, ThumbsUp } from 'lucide-react';
+import { saveReview } from '../lib/reviews';
 import { useAuth } from '../context/AuthContext';
 
 interface ReviewModalProps {
@@ -23,6 +23,27 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ isOpen, onClose, platform = '
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  
+  // Animation states
+  const [isVisible, setIsVisible] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsVisible(true);
+    } else {
+      setIsVisible(false);
+    }
+  }, [isOpen]);
+
+  // Handle modal close with animation
+  const handleClose = () => {
+    setIsExiting(true);
+    setTimeout(() => {
+      onClose();
+      setIsExiting(false);
+    }, 300); // Match transition duration
+  };
 
   if (!isOpen || !user) return null;
 
@@ -186,12 +207,23 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ isOpen, onClose, platform = '
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
+        <div 
+          className={`fixed inset-0 bg-black transition-opacity duration-300 ${
+            isVisible && !isExiting ? 'opacity-50' : 'opacity-0'
+          }`} 
+          onClick={handleClose} 
+        />
         
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-auto">
+        <div 
+          className={`relative bg-white rounded-lg shadow-xl max-w-md w-full mx-auto transition-all duration-300 ${
+            isVisible && !isExiting 
+              ? 'opacity-100 scale-100 translate-y-0' 
+              : 'opacity-0 scale-95 translate-y-4'
+          }`}
+        >
           <div className="absolute right-4 top-4">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-400 hover:text-gray-500"
             >
               <X className="h-6 w-6" />

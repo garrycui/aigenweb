@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import CodeEditor from '../components/CodeEditor';
 import TutorialProgress from '../components/TutorialProgress';
 import ResourceCard from '../components/ResourceCard';
+import TutorialCelebration from '../components/TutorialCelebration';
 
 interface QuizAnswer {
   questionId: number;
@@ -24,7 +25,6 @@ const TutorialDetail = () => {
   const [isLiked, setIsLiked] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
-  const [showCongrats, setShowCongrats] = useState(false);
   const [currentSection, setCurrentSection] = useState(0);
   const [completedSections, setCompletedSections] = useState<number[]>([]);
   const [timeSpent, setTimeSpent] = useState(0);
@@ -33,20 +33,10 @@ const TutorialDetail = () => {
   const [showQuiz, setShowQuiz] = useState(false);
   const [quizScore, setQuizScore] = useState<number | null>(null);
   const [currentQuizQuestion, setCurrentQuizQuestion] = useState(0);
-  const [currentResourceIndex, setCurrentResourceIndex] = useState(0);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [currentWebIndex, setCurrentWebIndex] = useState(0);
   const [allSectionsCompleted, setAllSectionsCompleted] = useState(false);
-
-  const handlePrevResource = () => {
-    if (!tutorial) return;
-    setCurrentResourceIndex((prev) => (prev > 0 ? prev - 1 : tutorial.resources.webLinks.length + tutorial.resources.videos.length - 1));
-  };
-
-  const handleNextResource = () => {
-    if (!tutorial) return;
-    setCurrentResourceIndex((prev) => (prev < tutorial.resources.webLinks.length + tutorial.resources.videos.length - 1 ? prev + 1 : 0));
-  };
+  const [celebrationVisible, setCelebrationVisible] = useState(false);
 
   const handlePrevVideo = () => {
     if (!tutorial) return;
@@ -317,8 +307,7 @@ const TutorialDetail = () => {
             completedTutorials: arrayUnion(tutorial.id)
           });
           setIsCompleted(true);
-          setShowCongrats(true);
-          setTimeout(() => setShowCongrats(false), 3000);
+          setCelebrationVisible(true);
         }
       } catch (error) {
         console.error('Error saving quiz results:', error);
@@ -354,11 +343,11 @@ const TutorialDetail = () => {
 
   return (
     <div className="max-w-4xl mx-auto px-4">
-      {showCongrats && (
-        <div className="fixed top-4 right-4 z-50 p-4 bg-green-100 text-green-800 rounded-lg shadow-lg">
-          Congratulations on completing the tutorial!
-        </div>
-      )}
+      <TutorialCelebration 
+        isVisible={celebrationVisible}
+        onDismiss={() => setCelebrationVisible(false)}
+        score={quizScore || 0}
+      />
       
       <Link 
         to="/tutorials"
