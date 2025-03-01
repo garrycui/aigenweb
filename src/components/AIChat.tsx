@@ -1,8 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
+import { Send, RefreshCw, Clock, ChevronDown, ChevronRight, Trash2, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { processChatMessage, getChatHistory } from '../lib/chat';
+import { 
+  processChatMessage, 
+  getChatHistory, 
+  getUserSessions,
+  setCurrentSession,
+  createNewSession,
+  deleteSession,
+  getSessionMessages,
+  processChatWithSession 
+} from '../lib/chat';
 import AIChatCard from './AIChatCard';
+
+// Constants for chat management
+const STALE_CHAT_THRESHOLD = 6 * 60 * 60 * 1000; // 6 hours before a chat is considered "stale"
+const LOCAL_STORAGE_KEY_PREFIX = 'aigen_chat_last_active_';
+
+// Interface for chat sessions
+interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  lastActiveAt: string;
+}
 
 const AIChat = () => {
   const { user } = useAuth();
@@ -18,39 +39,220 @@ const AIChat = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState('min-h-[60px]');
   const [isThinking, setIsThinking] = useState(false);
+  const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
+  const [isStaleChat, setIsStaleChat] = useState(false);
+  
+  // New session management state
+  const [activeSessions, setActiveSessions] = useState<ChatSession[]>([]);
+  const [archivedSessions, setArchivedSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
+  const [showSessionDrawer, setShowSessionDrawer] = useState(false);
+  const [showArchivedSessions, setShowArchivedSessions] = useState(false);
 
-  // Load chat history when component mounts
+  // Update the last activity time
+  const updateLastActiveTime = (sessionId: string) => {
+    try {
+      localStorage.setItem(`${LOCAL_STORAGE_KEY_PREFIX}${sessionId}`, Date.now().toString());
+    } catch (error) {
+      console.error('Error updating last active time:', error);
+    }
+  };
+
+  // Check if the chat is stale based on last activity time
+  const checkIfStaleChat = (sessionId: string) => {
+    try {
+      const lastActiveTime = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${sessionId}`);
+      if (!lastActiveTime) return false;
+      
+      const lastActive = parseInt(lastActiveTime, 10);
+      const now = Date.now();
+      
+      return (now - lastActive) > STALE_CHAT_THRESHOLD;
+    } catch (error) {
+      return false; // If there's any error, don't consider it stale
+    }
+  };
+
+  // Create a new chat session
+  const handleNewChat = async () => {
+    if (!user || isLoading) return;
+    
+    setIsLoading(true);
+    try {
+      const newSessionId = await createNewSession(user.id);
+      setCurrentSessionId(newSessionId);
+      setMessages([]);
+      
+      // Update session lists
+      const { activeSessions, archivedSessions } = await getUserSessions(user.id);
+      setActiveSessions(activeSessions);
+      setArchivedSessions(archivedSessions);
+      
+      // Hide prompts and close drawer on mobile
+      setShowNewChatPrompt(false);
+      if (window.innerWidth < 768) {
+        setShowSessionDrawer(false);
+      }
+      
+      // Update last active time
+      updateLastActiveTime(newSessionId);
+    } catch (error) {
+      console.error('Error creating new chat:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Switch to a different session
+  const handleSwitchSession = async (sessionId: string) => {
+    if (!user || isLoading || sessionId === currentSessionId) return;
+    
+    setIsLoading(true);
+    try {
+      await setCurrentSession(user.id, sessionId);
+      setCurrentSessionId(sessionId);
+      
+      // Get messages for this session
+      const messages = await getSessionMessages(user.id, sessionId);
+      
+      if (messages.length > 0) {
+        const formattedMessages = messages.map(msg => ({
+          content: msg.content.replace(/\n/g, '<br/>'),
+          role: msg.role,
+          sentiment: msg.sentiment,
+          timestamp: msg.timestamp
+        }));
+        setMessages(formattedMessages);
+        setContainerHeight('h-[400px]');
+      } else {
+        setMessages([]);
+      }
+      
+      // Update session lists to get latest order
+      const { activeSessions, archivedSessions } = await getUserSessions(user.id);
+      setActiveSessions(activeSessions);
+      setArchivedSessions(archivedSessions);
+      
+      // Hide stale banner
+      setShowNewChatPrompt(false);
+      
+      // Close drawer on mobile
+      if (window.innerWidth < 768) {
+        setShowSessionDrawer(false);
+      }
+      
+      // Update last active time
+      updateLastActiveTime(sessionId);
+    } catch (error) {
+      console.error('Error switching sessions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Delete a session
+  const handleDeleteSession = async (sessionId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    
+    if (!user || isLoading) return;
+    
+    if (!window.confirm('Are you sure you want to delete this conversation?')) {
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      await deleteSession(user.id, sessionId);
+      
+      // Update session lists
+      const { activeSessions, archivedSessions, currentSessionId: newCurrentId } = await getUserSessions(user.id);
+      setActiveSessions(activeSessions);
+      setArchivedSessions(archivedSessions);
+      
+      // If we deleted the current session, update the view
+      if (sessionId === currentSessionId) {
+        setCurrentSessionId(newCurrentId);
+        
+        if (newCurrentId) {
+          // Load messages for the new current session
+          const messages = await getSessionMessages(user.id, newCurrentId);
+          const formattedMessages = messages.map(msg => ({
+            content: msg.content.replace(/\n/g, '<br/>'),
+            role: msg.role,
+            sentiment: msg.sentiment,
+            timestamp: msg.timestamp
+          }));
+          setMessages(formattedMessages);
+          
+          // Update last active time
+          updateLastActiveTime(newCurrentId);
+        } else {
+          setMessages([]);
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load sessions and messages when component mounts
   useEffect(() => {
     if (user) {
       setIsLoading(true);
-      getChatHistory(user.id)
-        .then(history => {
-          if (history.length > 0) {
-            setContainerHeight('h-[400px]');
-            const formattedMessages = history.map(msg => ({
-              content: msg.content.replace(/\n/g, '<br/>'),
-              role: msg.role,
-              sentiment: msg.sentiment,
-              timestamp: msg.timestamp
-            }));
-            setMessages(formattedMessages);
+      
+      const loadSessionsAndMessages = async () => {
+        try {
+          // Get sessions data
+          const { activeSessions, archivedSessions, currentSessionId } = await getUserSessions(user.id);
+          
+          setActiveSessions(activeSessions);
+          setArchivedSessions(archivedSessions);
+          
+          if (currentSessionId) {
+            setCurrentSessionId(currentSessionId);
+            
+            // Check if session is stale
+            const isStale = checkIfStaleChat(currentSessionId);
+            setShowNewChatPrompt(isStale);
+            
+            // Get messages for current session
+            const messages = await getSessionMessages(user.id, currentSessionId);
+            
+            if (messages.length > 0) {
+              setContainerHeight('h-[400px]');
+              const formattedMessages = messages.map(msg => ({
+                content: msg.content.replace(/\n/g, '<br/>'),
+                role: msg.role,
+                sentiment: msg.sentiment,
+                timestamp: msg.timestamp
+              }));
+              setMessages(formattedMessages);
+            }
+            
+            // Update last active time
+            updateLastActiveTime(currentSessionId);
           }
-        })
-        .catch(error => {
-          console.error('Error loading chat history:', error);
-        })
-        .finally(() => {
+        } catch (error) {
+          console.error('Error loading sessions and messages:', error);
+        } finally {
           setIsLoading(false);
-        });
+        }
+      };
+      
+      loadSessionsAndMessages();
     }
   }, [user]);
 
+  // Container height adjustment based on messages
   useEffect(() => {
     if (messages.length > 0) {
       setContainerHeight('h-[400px]');
     }
   }, [messages]);
 
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -59,7 +261,18 @@ const AIChat = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !user || isLoading) return;
+    if (!input.trim() || !user || !currentSessionId || isLoading) return;
+
+    // Hide new chat prompt if it's showing
+    if (showNewChatPrompt) {
+      setShowNewChatPrompt(false);
+    }
+    if (isStaleChat) {
+      setIsStaleChat(false);
+    }
+    
+    // Update last active time
+    updateLastActiveTime(currentSessionId);
 
     const timestamp = new Date().toISOString();
     const message = input;
@@ -73,7 +286,8 @@ const AIChat = () => {
     setTimeout(() => setIsThinking(true), 500);
 
     try {
-      const result = await processChatMessage(user.id, message);
+      // Use session-based processing
+      const result = await processChatWithSession(user.id, currentSessionId, message);
       const responses = Array.isArray(result) ? result : [result];
       
       const newMessages = responses.map((res) => ({
@@ -93,6 +307,12 @@ const AIChat = () => {
         }
         return [...updatedMessages, ...newMessages];
       });
+      
+      // Refresh session data to get updated titles
+      const { activeSessions, archivedSessions } = await getUserSessions(user.id);
+      setActiveSessions(activeSessions);
+      setArchivedSessions(archivedSessions);
+      
     } catch (error) {
       console.error('Error in chat:', error);
       setMessages(prev => [
@@ -105,6 +325,33 @@ const AIChat = () => {
     }
   };
 
+  // Format date for display
+  const formatSessionDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    // Today: Show time only
+    if (date.toDateString() === now.toDateString()) {
+      return `Today ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    
+    // Yesterday: Show "Yesterday"
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Yesterday ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    
+    // This week: Show day of week
+    if (now.getTime() - date.getTime() < 7 * 24 * 60 * 60 * 1000) {
+      return `${date.toLocaleDateString([], { weekday: 'long' })}`;
+    }
+    
+    // Older: Show date
+    return date.toLocaleDateString();
+  };
+
+  // Get sentiment-based background color
   const getSentimentColor = (sentiment?: string) => {
     switch (sentiment) {
       case 'positive': return 'bg-green-50 border-green-200';
@@ -122,114 +369,266 @@ const AIChat = () => {
 
   return (
     <div className={`flex flex-col bg-gray-50 rounded-lg transition-all duration-300 ${containerHeight}`}>
-      {/* Chat Display */}
-      <div 
-        ref={chatContainerRef}
-        className="flex-1 p-4 overflow-y-auto space-y-4"
-      >
-        {/* Welcome message when no messages */}
-        {messages.length === 0 && !isLoading && (
-          <div className="flex justify-center items-center h-full">
-            <div className="text-center p-6 rounded-lg bg-white shadow-sm border border-gray-200">
-              <h3 className="font-medium text-gray-800 mb-2">Welcome! I'm here to help you.</h3>
-              <p className="text-gray-600 text-sm mb-4">How are you feeling about AI technology today?</p>
-              <div className="flex justify-center space-x-2">
-                <button 
-                  onClick={() => setInput("I'm excited about AI possibilities!")}
-                  className="px-3 py-2 bg-green-100 text-green-700 rounded-lg text-sm hover:bg-green-200"
-                >
-                  Excited
-                </button>
-                <button 
-                  onClick={() => setInput("I'm a bit uncertain about AI changes.")}
-                  className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200"
-                >
-                  Uncertain
-                </button>
-                <button 
-                  onClick={() => setInput("I want to learn more about AI.")}
-                  className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm hover:bg-purple-200"
-                >
-                  Curious
-                </button>
-              </div>
+      {/* Chat header with session controls */}
+      <div className="flex justify-between items-center bg-gray-100 p-2 border-b border-gray-200 rounded-t-lg">
+        <div className="flex items-center">
+          <button
+            onClick={() => setShowSessionDrawer(!showSessionDrawer)}
+            className="p-1 mr-2 text-gray-600 hover:bg-gray-200 rounded-md"
+            title="Show conversation history"
+          >
+            <Clock className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-medium text-gray-700 truncate max-w-[180px]">
+            {activeSessions.find(s => s.id === currentSessionId)?.title || 'New Conversation'}
+          </span>
+        </div>
+        <div>
+          <button
+            onClick={handleNewChat}
+            className="px-3 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+            title="Start a new conversation"
+          >
+            New Chat
+          </button>
+        </div>
+      </div>
+
+      {/* Main content area with session drawer and chat */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Session drawer sidebar */}
+        {showSessionDrawer && (
+          <div className="w-64 bg-white border-r border-gray-200 flex flex-col h-full">
+            <div className="p-3 border-b border-gray-200">
+              <button
+                onClick={handleNewChat}
+                className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm flex items-center justify-center"
+              >
+                <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                <span>New Conversation</span>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-2">
+              {/* Active conversations */}
+              {activeSessions.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">
+                    Recent Conversations
+                  </h3>
+                  <div className="space-y-1">
+                    {activeSessions.map(session => (
+                      <div
+                        key={session.id}
+                        className={`flex items-center group justify-between p-2 rounded-md text-sm cursor-pointer ${
+                          currentSessionId === session.id ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-gray-100'
+                        }`}
+                        onClick={() => handleSwitchSession(session.id)}
+                      >
+                        <div className="flex-1 truncate pr-2">
+                          <div className="font-medium truncate">{session.title}</div>
+                          <div className="text-xs text-gray-500">{formatSessionDate(session.lastActiveAt)}</div>
+                        </div>
+                        {currentSessionId !== session.id && (
+                          <button
+                            onClick={(e) => handleDeleteSession(session.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 rounded"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Archived conversations */}
+              {archivedSessions.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => setShowArchivedSessions(!showArchivedSessions)}
+                    className="flex items-center justify-between w-full px-1 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                  >
+                    <span>Archived ({archivedSessions.length})</span>
+                    {showArchivedSessions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </button>
+                  
+                  {showArchivedSessions && (
+                    <div className="space-y-1 mt-1">
+                      {archivedSessions.map(session => (
+                        <div
+                          key={session.id}
+                          className="flex items-center group justify-between p-2 rounded-md text-sm cursor-pointer hover:bg-gray-100"
+                          onClick={() => handleSwitchSession(session.id)}
+                        >
+                          <div className="flex-1 truncate pr-2">
+                            <div className="font-medium truncate">{session.title}</div>
+                            <div className="text-xs text-gray-500">{formatSessionDate(session.lastActiveAt)}</div>
+                          </div>
+                          <button
+                            onClick={(e) => handleDeleteSession(session.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 rounded"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {activeSessions.length === 0 && archivedSessions.length === 0 && (
+                <div className="p-4 text-center text-gray-500 text-sm">
+                  No conversations yet. Start a new chat!
+                </div>
+              )}
             </div>
           </div>
         )}
+        
+        {/* Chat area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Stale Chat Banner */}
+          {showNewChatPrompt && (
+            <div className="bg-blue-50 border-b border-blue-200 p-3 flex items-center justify-between">
+              <div className="text-sm text-blue-700">
+                This is a previous conversation. Would you like to start a new one?
+              </div>
+              <button 
+                onClick={handleNewChat}
+                className="ml-4 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md text-sm flex items-center"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                New Chat
+              </button>
+            </div>
+          )}
 
-        {messages.map((message, index) => (
+          {/* Chat messages display */}
           <div 
-            key={index} 
-            className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}
+            ref={chatContainerRef}
+            className="flex-1 p-4 overflow-y-auto space-y-4"
           >
-            <div
-              className={`max-w-[80%] p-4 rounded-lg border shadow-sm ${getSentimentColor(message.sentiment)}`}
-              dangerouslySetInnerHTML={{ __html: message.content }}
-              style={{ whiteSpace: 'pre-wrap' }} // Preserve whitespace
-            />
-            <span className="text-xs text-gray-500 mt-1">
-              {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
-            </span>
-            {message.recommendations && message.recommendations.length > 0 && (
-              <div className="mt-4 space-y-4 w-full max-w-[95%]">
-                {message.recommendations.map(rec => (
-                  <AIChatCard
-                    key={rec.id}
-                    item={{
-                      id: rec.id,
-                      title: rec.title,
-                      content: rec.content,
-                      type: rec.type || 'tutorial' // Default to tutorial if type not specified
-                    }}
-                    onClick={handleContentClick}
-                  />
-                ))}
+            {/* Welcome message when no messages */}
+            {messages.length === 0 && !isLoading && (
+              <div className="flex justify-center items-center h-full">
+                <div className="text-center p-6 rounded-lg bg-white shadow-sm border border-gray-200">
+                  <h3 className="font-medium text-gray-800 mb-2">Welcome! I'm here to help you.</h3>
+                  <p className="text-gray-600 text-sm mb-4">How are you feeling about AI technology today?</p>
+                  <div className="flex justify-center space-x-2">
+                    <button 
+                      onClick={() => setInput("I'm excited about AI possibilities!")}
+                      className="px-3 py-2 bg-green-100 text-green-700 rounded-lg text-sm hover:bg-green-200"
+                    >
+                      Excited
+                    </button>
+                    <button 
+                      onClick={() => setInput("I'm a bit uncertain about AI changes.")}
+                      className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200"
+                    >
+                      Uncertain
+                    </button>
+                    <button 
+                      onClick={() => setInput("I want to learn more about AI.")}
+                      className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm hover:bg-purple-200"
+                    >
+                      Curious
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Message display */}
+            {messages.map((message, index) => (
+              <div 
+                key={index} 
+                className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}
+              >
+                <div
+                  className={`max-w-[80%] p-4 rounded-lg border shadow-sm ${getSentimentColor(message.sentiment)}`}
+                  dangerouslySetInnerHTML={{ __html: message.content }}
+                  style={{ whiteSpace: 'pre-wrap' }} // Preserve whitespace
+                />
+                <span className="text-xs text-gray-500 mt-1">
+                  {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : ''}
+                </span>
+                {message.recommendations && message.recommendations.length > 0 && (
+                  <div className="mt-4 space-y-4 w-full max-w-[95%]">
+                    {message.recommendations.map(rec => (
+                      <AIChatCard
+                        key={rec.id}
+                        item={{
+                          id: rec.id,
+                          title: rec.title,
+                          content: rec.content,
+                          type: rec.type || 'tutorial' // Default to tutorial if type not specified
+                        }}
+                        onClick={handleContentClick}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Enhanced thinking indicator with animated gradient */}
+            {(isLoading || isThinking) && (
+              <div className="flex justify-start animate-fade-in">
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 shadow-sm">
+                  <div className="flex flex-col space-y-1">
+                    <div className="flex space-x-2 items-center">
+                      <div className="thinking-dot bg-indigo-400 rounded-full animate-thinking-1"></div>
+                      <div className="thinking-dot bg-indigo-500 rounded-full animate-thinking-2"></div>
+                      <div className="thinking-dot bg-indigo-600 rounded-full animate-thinking-3"></div>
+                    </div>
+                    <span className="text-xs text-gray-500 pt-1">AI is thinking...</span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-        ))}
 
-        {/* Enhanced thinking indicator with animated gradient */}
-        {(isLoading || isThinking) && (
-          <div className="flex justify-start animate-fade-in">
-            <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 shadow-sm">
-              <div className="flex flex-col space-y-1">
-                <div className="flex space-x-2 items-center">
-                  <div className="thinking-dot bg-indigo-400 rounded-full animate-thinking-1"></div>
-                  <div className="thinking-dot bg-indigo-500 rounded-full animate-thinking-2"></div>
-                  <div className="thinking-dot bg-indigo-600 rounded-full animate-thinking-3"></div>
-                </div>
-                <span className="text-xs text-gray-500 pt-1">AI is thinking...</span>
+          {/* Input form */}
+          <div className="bg-white border-t p-4">
+            {messages.length > 0 && (
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={handleNewChat}
+                  className="text-xs text-gray-500 hover:text-gray-700 flex items-center"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Start New Chat
+                </button>
               </div>
-            </div>
-          </div>
-        )}
-      </div>
+            )}
 
-      {/* Input Form */}
-      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
-        <div className="relative">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask me anything..."
-            className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full ${
-              isLoading || !input.trim()
-                ? 'text-gray-400 cursor-not-allowed'
-                : 'text-indigo-600 hover:bg-indigo-50'
-            }`}
-          >
-            <Send className="h-5 w-5" />
-          </button>
+            <form onSubmit={handleSubmit} className="relative">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask me anything..."
+                className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full ${
+                  isLoading || !input.trim()
+                    ? 'text-gray-400 cursor-not-allowed'
+                    : 'text-indigo-600 hover:bg-indigo-50'
+                }`}
+              >
+                <Send className="h-5 w-5" />
+              </button>
+            </form>
+          </div>
         </div>
-      </form>
+      </div>
 
       {/* Add custom CSS for thinking animation */}
       <style>{`

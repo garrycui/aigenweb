@@ -36,16 +36,7 @@ const PageLoader = () => (
 function App() {
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const location = useLocation();
-
-  // Free routes that don't require subscription check
-  const freeRoutes = ['/', '/login', '/subscription', '/settings', '/profile'];
   
-  // Check if current path matches any free route
-  const isCurrentRouteFree = freeRoutes.some(route => 
-    location.pathname === route || 
-    (route !== '/' && location.pathname.startsWith(route + '/'))
-  );
-
   return (
     <PostProvider>
       <div className="min-h-screen bg-gray-50">

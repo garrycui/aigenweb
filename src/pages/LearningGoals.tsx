@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, Plus, Trash2} from 'lucide-react';
+import { Target, Plus, Trash2, BookOpen, Target as TargetIcon, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -14,14 +14,21 @@ interface LearningGoal {
   progress: number;
   status: 'not_started' | 'in_progress' | 'completed';
   createdAt: Date;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
 }
+
+type Difficulty = 'beginner' | 'intermediate' | 'advanced';
 
 const LearningGoals = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [goals, setGoals] = useState<LearningGoal[]>([]);
   const [isAddingGoal, setIsAddingGoal] = useState(false);
-  const [newGoal, setNewGoal] = useState({ title: '', description: '' });
+  const [newGoal, setNewGoal] = useState({ 
+    title: '', 
+    description: '', 
+    difficulty: 'intermediate' as Difficulty 
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,7 +70,8 @@ const LearningGoals = () => {
         description: newGoal.description,
         progress: 0,
         status: 'not_started',
-        createdAt: new Date()
+        createdAt: new Date(),
+        difficulty: newGoal.difficulty
       };
 
       const goalsRef = doc(db, 'users', user.id, 'learningGoals', 'goals');
@@ -72,7 +80,7 @@ const LearningGoals = () => {
       }, { merge: true });
 
       setGoals(prev => [...prev, newGoalObj]);
-      setNewGoal({ title: '', description: '' });
+      setNewGoal({ title: '', description: '', difficulty: 'intermediate' });
       setIsAddingGoal(false);
       setError(null);
 
@@ -91,9 +99,9 @@ const LearningGoals = () => {
       // Limit to 3 tutorials per goal
       const selectedTopics = topics.slice(0, 3);
       
-      // Generate a tutorial for each topic
+      // Generate a tutorial for each topic using the selected difficulty
       for (const topic of selectedTopics) {
-        await generateTutorial(user.id, topic, 'beginner');
+        await generateTutorial(user.id, topic, newGoal.difficulty);
       }
     } catch (err) {
       console.error('Error generating tutorials for goal:', err);
@@ -190,6 +198,62 @@ const LearningGoals = () => {
                   placeholder="Describe what you want to achieve..."
                 />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Your Experience Level
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setNewGoal(prev => ({ ...prev, difficulty: 'beginner' }))}
+                    className={`flex items-center p-3 rounded-lg border-2 ${
+                      newGoal.difficulty === 'beginner' 
+                        ? 'border-indigo-600 bg-indigo-50' 
+                        : 'border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    <BookOpen className="h-5 w-5 text-green-500 mr-2" />
+                    <div className="text-left">
+                      <div className="font-medium">Beginner</div>
+                      <div className="text-xs text-gray-500">New to this topic</div>
+                    </div>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setNewGoal(prev => ({ ...prev, difficulty: 'intermediate' }))}
+                    className={`flex items-center p-3 rounded-lg border-2 ${
+                      newGoal.difficulty === 'intermediate' 
+                        ? 'border-indigo-600 bg-indigo-50' 
+                        : 'border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    <TargetIcon className="h-5 w-5 text-blue-500 mr-2" />
+                    <div className="text-left">
+                      <div className="font-medium">Intermediate</div>
+                      <div className="text-xs text-gray-500">Some knowledge</div>
+                    </div>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setNewGoal(prev => ({ ...prev, difficulty: 'advanced' }))}
+                    className={`flex items-center p-3 rounded-lg border-2 ${
+                      newGoal.difficulty === 'advanced' 
+                        ? 'border-indigo-600 bg-indigo-50' 
+                        : 'border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    <Sparkles className="h-5 w-5 text-purple-500 mr-2" />
+                    <div className="text-left">
+                      <div className="font-medium">Advanced</div>
+                      <div className="text-xs text-gray-500">Experienced user</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+              
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => setIsAddingGoal(false)}
