@@ -8,11 +8,10 @@ import {
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { startTrial } from '../lib/stripe'; 
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { 
   getUserWithSubscription, 
   createUser, 
+  updateUser,  // Add this import
   invalidateUserCache,
   removeSubscriptionCallback,
   cleanupAllSubscriptionListeners
@@ -125,7 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (userData) {
             // Ensure name is set
             if (!userData.name && firebaseUser.displayName) {
-              await updateDoc(doc(db, 'users', userId), {
+              await updateUser(userId, {
                 name: firebaseUser.displayName,
                 displayName: firebaseUser.displayName
               });
@@ -181,17 +180,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userData = {
         name: name,
         email: email,
-        createdAt: new Date(),
-        updatedAt: new Date(),
         displayName: name // Add explicit displayName field
       };
 
-      // Create/update Firestore document for the user
-      await setDoc(
-        doc(db, 'users', firebaseUser.uid),
-        userData,
-        { merge: true }
-      );
+      // Replace setDoc with createUser
+      await createUser(firebaseUser.uid, userData);
 
       // Start trial period after user document is created
       await startTrial(firebaseUser.uid);

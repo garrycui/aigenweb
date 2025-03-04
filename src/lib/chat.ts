@@ -75,8 +75,6 @@ export const saveChatMessage = async (userId: string, message: string, role: 'us
  */
 export const getChatHistory = async (
   userId: string, 
-  limit: number = 50, 
-  startAfter?: string
 ): Promise<ChatMessage[]> => {
   // Ensure user has session structure
   await migrateToSessions(userId);

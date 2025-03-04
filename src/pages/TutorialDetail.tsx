@@ -39,8 +39,6 @@ const TutorialDetail = () => {
   const [currentWebIndex, setCurrentWebIndex] = useState(0);
   const [allSectionsCompleted, setAllSectionsCompleted] = useState(false);
   const [celebrationVisible, setCelebrationVisible] = useState(false);
-  const [cacheHit, setCacheHit] = useState(false);
-  const [loadTime, setLoadTime] = useState<number | null>(null);
 
   const handlePrevVideo = () => {
     if (!tutorial) return;
