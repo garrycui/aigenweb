@@ -1,5 +1,6 @@
 import { db } from './firebase';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { getUser, updateUser } from './cache'; // Import user service functions
 
 interface ReviewData {
   rating: number;
@@ -18,10 +19,7 @@ export const shouldShowReview = async (userId: string, forceShow: boolean = fals
   if (forceShow) return true;
   
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    const userData = userDoc.data();
-
+    const userData = await getUser(userId); // Replace direct Firestore access
     if (!userData) return false;
 
     // Check if user has already reviewed
@@ -29,7 +27,12 @@ export const shouldShowReview = async (userId: string, forceShow: boolean = fals
 
     // Check if user has dismissed the review recently (within 7 days)
     if (userData.reviewDismissedAt) {
-      const dismissedAt = userData.reviewDismissedAt.toDate();
+      const dismissedAt = userData.reviewDismissedAt instanceof Date 
+        ? userData.reviewDismissedAt 
+        : userData.reviewDismissedAt.toDate?.();
+      
+      if (!dismissedAt) return false;
+      
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       
@@ -39,7 +42,14 @@ export const shouldShowReview = async (userId: string, forceShow: boolean = fals
     }
 
     // Check if user has been active for at least 3 days
-    const createdAt = userData.createdAt?.toDate();
+    // Handle both Date objects and Firestore timestamps
+    let createdAt = null;
+    if (userData.createdAt) {
+      createdAt = userData.createdAt instanceof Date 
+        ? userData.createdAt 
+        : userData.createdAt.toDate?.();
+    }
+    
     if (!createdAt) return false;
 
     const threeDaysAgo = new Date();
@@ -50,9 +60,6 @@ export const shouldShowReview = async (userId: string, forceShow: boolean = fals
     
     // Additional engagement-based condition - tutorials
     const hasCompletedTutorials = (userData.completedTutorials?.length || 0) >= 2;
-    
-    // Comment out activity tracking since it's not implemented yet
-    // const hasUsedApp = userData.lastActivityAt || false;
     
     // Only check account age and tutorial completion for now
     return isOldEnough && hasCompletedTutorials;
@@ -65,16 +72,19 @@ export const shouldShowReview = async (userId: string, forceShow: boolean = fals
 // Add new function to check if it's time for a periodic review
 export const shouldShowPeriodicReview = async (userId: string): Promise<boolean> => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    const userData = userDoc.data();
-
+    const userData = await getUser(userId); // Replace direct Firestore access
     if (!userData) return false;
 
     // User must have completed at least one review already
     if (!userData.hasReviewed || !userData.lastReviewedAt) return false;
 
-    const lastReviewDate = userData.lastReviewedAt.toDate();
+    // Handle both Date objects and Firestore timestamps
+    const lastReviewDate = userData.lastReviewedAt instanceof Date 
+      ? userData.lastReviewedAt 
+      : userData.lastReviewedAt.toDate?.();
+    
+    if (!lastReviewDate) return false;
+    
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 1);
 
@@ -104,11 +114,10 @@ export const saveReview = async (userId: string, data: Omit<ReviewData, 'created
       createdAt: serverTimestamp()
     });
 
-    // Update user document
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
+    // Update user document using user service
+    await updateUser(userId, {
       hasReviewed: true,
-      lastReviewedAt: serverTimestamp()
+      lastReviewedAt: new Date() // Use JS Date instead of serverTimestamp
     });
 
     return true;

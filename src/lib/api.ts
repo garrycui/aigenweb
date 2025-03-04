@@ -11,10 +11,11 @@ import {
   limit,
   deleteDoc,
   serverTimestamp,
-  arrayUnion,
-  setDoc
+  startAfter
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { forumCache, postCache, assessmentCache} from './cache';
+import { updateUser, getUser } from './cache'; // Import user service
 
 // Calculate AI preference based on assessment answers
 const calculateAIPreference = (answers: any[]) => {
@@ -66,6 +67,18 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
       });
     }));
 
+    // Update user document with assessment results using service function
+    await updateUser(userId, {
+      hasCompletedAssessment: true,
+      mbtiType: assessmentData.mbti_type,
+      aiPreference: aiPreference
+    });
+
+    // No need to invalidate user cache - updateUser does that
+
+    // Still need to invalidate assessment cache
+    assessmentCache.delete(`latest-assessment-${userId}`);
+
     return { data: { id: assessmentRef.id } };
   } catch (error) {
     console.error('Error saving assessment:', error);
@@ -74,170 +87,301 @@ export const saveAssessment = async (userId: string, assessmentData: any) => {
 };
 
 export const getLatestAssessment = async (userId: string) => {
-  try {
-    const assessmentsRef = collection(db, 'assessments');
-    const q = query(
-      assessmentsRef,
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    if (querySnapshot.empty) {
-      return { data: null };
+  // Create a unique cache key for this user's latest assessment
+  const cacheKey = `latest-assessment-${userId}`;
+
+  // Use getOrSet to retrieve from cache or fetch from Firestore
+  return assessmentCache.getOrSet(cacheKey, async () => {
+    try {
+      const assessmentsRef = collection(db, 'assessments');
+      const q = query(
+        assessmentsRef,
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc'),
+        limit(1)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        return { data: null };
+      }
+
+      const assessmentDoc = querySnapshot.docs[0];
+      const answersRef = collection(db, 'assessments', assessmentDoc.id, 'answers');
+      const answersSnapshot = await getDocs(answersRef);
+
+      const rawData = assessmentDoc.data() as {
+        userId: string;
+        mbti_type: string;
+        ai_preference: string;
+        createdAt: any;
+      };
+
+      const assessment = {
+        id: assessmentDoc.id,
+        ...rawData,
+        answers: answersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+      };
+
+      return { data: assessment };
+    } catch (error) {
+      console.error('Error fetching assessment:', error);
+      return { data: null, error };
     }
-
-    const assessmentDoc = querySnapshot.docs[0];
-    const answersRef = collection(db, 'assessments', assessmentDoc.id, 'answers');
-    const answersSnapshot = await getDocs(answersRef);
-
-    const rawData = assessmentDoc.data() as {
-      userId: string;
-      mbti_type: string;
-      ai_preference: string;
-      createdAt: any;
-    };
-
-    const assessment = {
-      id: assessmentDoc.id,
-      ...rawData,
-      answers: answersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-    };
-
-    return { data: assessment };
-  } catch (error) {
-    console.error('Error fetching assessment:', error);
-    return { data: null, error };
-  }
+  });
 };
 
 // Forum Functions
 export const fetchPosts = async (
   sortBy: 'date' | 'likes' | 'comments' = 'date',
-  page: number = 1
+  page: number = 1,
+  lastVisibleId?: string
 ) => {
-  try {
-    const postsRef = collection(db, 'posts');
-    const q = query(postsRef);
-    const querySnapshot = await getDocs(q);
-
-    const posts = await Promise.all(querySnapshot.docs.map(async (postDoc) => {
-      const data = postDoc.data();
-      const commentsSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'comments'));
-      const commentsCount = commentsSnapshot.size;
-      const likesSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'likes'));
-      const likesCount = likesSnapshot.size;
-      return {
-        id: postDoc.id,
-        ...data,
-        comments_count: commentsCount || 0,
-        likes_count: likesCount || 0,
-        engagement_score: (likesCount || 0) + (commentsCount || 0),
-        createdAt: data.createdAt || null
-      };
-    }));
-
-    let sortedPosts = posts;
-    if (sortBy === 'date') {
-      sortedPosts = posts.sort((a, b) => {
-        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
-        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime();
-        return bTime - aTime;
-      });
-    } else if (sortBy === 'likes') {
-      sortedPosts = posts.sort((a, b) => b.likes_count - a.likes_count);
-    } else if (sortBy === 'comments') {
-      sortedPosts = posts.sort((a, b) => b.comments_count - a.comments_count);
-    }
-
-    const start = (page - 1) * 10;
-    const pagedPosts = sortedPosts.slice(start, start + 10);
-    return { data: pagedPosts };
-  } catch (error) {
-    console.error('Error fetching posts:', error);
-    throw error;
-  }
-};
-
-export const fetchPost = async (postId: string) => {
-  try {
-    const postRef = doc(db, 'posts', postId);
-    const postDoc = await getDoc(postRef);
-
-    if (!postDoc.exists()) {
-      throw new Error('Post not found');
-    }
-
-    const postData = postDoc.data();
-
-    const commentsRef = collection(db, 'posts', postId, 'comments');
-    const commentsSnapshot = await getDocs(query(commentsRef, orderBy('createdAt', 'desc')));
-    
-    const comments = await Promise.all(commentsSnapshot.docs.map(async commentDoc => {
-      const commentData = commentDoc.data();
+  // Create a unique cache key based on sort method, page, and cursor
+  const cacheKey = lastVisibleId 
+    ? `posts-${sortBy}-after-${lastVisibleId}` 
+    : `posts-${sortBy}-page${page}`;
+  
+  return forumCache.getOrSet(cacheKey, async () => {
+    try {
+      const postsRef = collection(db, 'posts');
+      let q;
       
-      const repliesRef = collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies');
-      const repliesSnapshot = await getDocs(query(repliesRef, orderBy('createdAt', 'desc')));
+      // Apply sorting based on sortBy parameter
+      const orderByField = sortBy === 'date' ? 'createdAt' : 
+                          sortBy === 'likes' ? 'likes_count' : 'comments_count';
       
-      const commentLikesSnapshot = await getDocs(collection(db, 'posts', postId, 'comments', commentDoc.id, 'likes'));
+      // If we have a last document ID, use it for pagination
+      if (lastVisibleId) {
+        // First, get the document to use as cursor
+        const lastDocRef = doc(db, 'posts', lastVisibleId);
+        const lastDocSnap = await getDoc(lastDocRef);
+        
+        if (lastDocSnap.exists()) {
+          q = query(
+            postsRef, 
+            orderBy(orderByField, 'desc'),
+            startAfter(lastDocSnap),
+            limit(10)
+          );
+        } else {
+          // Fallback if document doesn't exist
+          q = query(postsRef, orderBy(orderByField, 'desc'), limit(10));
+        }
+      } else {
+        // First page, no cursor needed
+        q = query(postsRef, orderBy(orderByField, 'desc'), limit(10));
+      }
       
-      const replies = await Promise.all(repliesSnapshot.docs.map(async replyDoc => {
-        const replyData = replyDoc.data();
-        const replyLikesSnapshot = await getDocs(
-          collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies', replyDoc.id, 'likes')
-        );
-
+      const querySnapshot = await getDocs(q);
+      const lastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
+      
+      const posts = await Promise.all(querySnapshot.docs.map(async (postDoc) => {
+        // ... existing post mapping code ...
+        const data = postDoc.data();
+        const commentsSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'comments'));
+        const commentsCount = commentsSnapshot.size;
+        const likesSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'likes'));
+        const likesCount = likesSnapshot.size;
         return {
-          id: replyDoc.id,
-          content: replyData.content || '',
-          userId: replyData.userId || '',
-          user_name: replyData.user_name || '',
-          likes_count: replyLikesSnapshot.size || 0,
-          created_at: replyData.createdAt || null
+          id: postDoc.id,
+          title: data.title,
+          content: data.content,
+          category: data.category,
+          image_url: data.image_url,
+          video_url: data.video_url,
+          likes_count: likesCount,
+          comments_count: commentsCount,
+          createdAt: data.createdAt,
+          user_name: data.user_name,
+          user_id: data.userId
         };
       }));
 
-      return {
-        id: commentDoc.id,
-        content: commentData.content || '',
-        userId: commentData.userId || '',
-        user_name: commentData.user_name || '',
-        likes_count: commentLikesSnapshot.size || 0,
-        created_at: commentData.createdAt || null,
-        replies
+      // Return both the posts data and pagination info
+      return { 
+        data: posts,
+        pagination: {
+          hasMore: posts.length === 10,
+          lastVisible: lastVisible?.id || null
+        }
       };
-    }));
-
-    const likesSnapshot = await getDocs(collection(db, 'posts', postId, 'likes'));
-
-    const post = {
-      id: postDoc.id,
-      title: postData.title || '',
-      content: postData.content || '',
-      category: postData.category || '',
-      image_url: postData.image_url || '',
-      video_url: postData.video_url || '',
-      userId: postData.userId || '',
-      user_name: postData.user_name || '',
-      likes_count: likesSnapshot.size || 0,
-      comments_count: comments.length || 0,
-      created_at: postData.createdAt || null,
-      comments
-    };
-
-    return { data: post };
-  } catch (error) {
-    console.error('Error fetching post:', error);
-    throw error;
-  }
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+      return { 
+        data: [], 
+        pagination: { hasMore: false, lastVisible: null },
+        error 
+      };
+    }
+  });
 };
+
+export const searchPosts = async (
+  query: string,
+  sortBy: 'date' | 'likes' | 'comments' = 'date',
+  page: number = 1
+) => {
+  // Create a unique cache key based on search query, sort method and page
+  const cacheKey = `search-${query.replace(/\s+/g, '-')}-${sortBy}-page${page}`;
+  
+  return forumCache.getOrSet(cacheKey, async () => {
+    try {
+      const postsRef = collection(db, 'posts');
+      const querySnapshot = await getDocs(postsRef);
+      
+      // Filter posts that match the search query
+      let matchedPosts = querySnapshot.docs.filter(doc => {
+        const data = doc.data();
+        const title = data.title?.toLowerCase() || '';
+        const content = data.content?.toLowerCase() || '';
+        const searchQuery = query.toLowerCase();
+        return title.includes(searchQuery) || content.includes(searchQuery);
+      });
+      
+      // Sort based on sortBy parameter
+      if (sortBy === 'likes') {
+        matchedPosts = matchedPosts.sort((a, b) => 
+          (b.data().likes_count || 0) - (a.data().likes_count || 0)
+        );
+      } else if (sortBy === 'comments') {
+        matchedPosts = matchedPosts.sort((a, b) => 
+          (b.data().comments_count || 0) - (a.data().comments_count || 0)
+        );
+      } else {
+        matchedPosts = matchedPosts.sort((a, b) => 
+          b.data().createdAt - a.data().createdAt
+        );
+      }
+      
+      // Apply pagination
+      const paginatedPosts = matchedPosts.slice((page - 1) * 10, page * 10);
+      
+      const posts = await Promise.all(paginatedPosts.map(async (postDoc) => {
+        const data = postDoc.data();
+        const commentsSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'comments'));
+        const commentsCount = commentsSnapshot.size;
+        const likesSnapshot = await getDocs(collection(db, 'posts', postDoc.id, 'likes'));
+        const likesCount = likesSnapshot.size;
+        return {
+          id: postDoc.id,
+          title: data.title,
+          content: data.content,
+          category: data.category,
+          image_url: data.image_url,
+          video_url: data.video_url,
+          likes_count: likesCount,
+          comments_count: commentsCount,
+          createdAt: data.createdAt,
+          user_name: data.user_name,
+          user_id: data.userId
+        };
+      }));
+
+      return { data: posts };
+    } catch (error) {
+      console.error('Error searching posts:', error);
+      return { data: [], error };
+    }
+  });
+};
+
+export const fetchPost = async (postId: string) => {
+  // Use post cache for individual post details
+  const cacheKey = `post-${postId}`;
+  
+  return postCache.getOrSet(cacheKey, async () => {
+    try {
+      const postRef = doc(db, 'posts', postId);
+      const postDoc = await getDoc(postRef);
+
+      if (!postDoc.exists()) {
+        throw new Error('Post not found');
+      }
+
+      const postData = postDoc.data();
+
+      const commentsRef = collection(db, 'posts', postId, 'comments');
+      const commentsSnapshot = await getDocs(query(commentsRef, orderBy('createdAt', 'desc')));
+      
+      const comments = await Promise.all(commentsSnapshot.docs.map(async commentDoc => {
+        const commentData = commentDoc.data();
+        
+        const repliesRef = collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies');
+        const repliesSnapshot = await getDocs(query(repliesRef, orderBy('createdAt', 'desc')));
+        
+        const commentLikesSnapshot = await getDocs(collection(db, 'posts', postId, 'comments', commentDoc.id, 'likes'));
+        
+        const replies = await Promise.all(repliesSnapshot.docs.map(async replyDoc => {
+          const replyData = replyDoc.data();
+          const replyLikesSnapshot = await getDocs(
+            collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies', replyDoc.id, 'likes')
+          );
+
+          return {
+            id: replyDoc.id,
+            content: replyData.content || '',
+            userId: replyData.userId || '',
+            user_name: replyData.user_name || '',
+            likes_count: replyLikesSnapshot.size || 0,
+            created_at: replyData.createdAt || null
+          };
+        }));
+
+        return {
+          id: commentDoc.id,
+          content: commentData.content || '',
+          userId: commentData.userId || '',
+          user_name: commentData.user_name || '',
+          likes_count: commentLikesSnapshot.size || 0,
+          created_at: commentData.createdAt || null,
+          replies
+        };
+      }));
+
+      const likesSnapshot = await getDocs(collection(db, 'posts', postId, 'likes'));
+
+      const post = {
+        id: postDoc.id,
+        title: postData.title || '',
+        content: postData.content || '',
+        category: postData.category || '',
+        image_url: postData.image_url || '',
+        video_url: postData.video_url || '',
+        userId: postData.userId || '',
+        user_name: postData.user_name || '',
+        likes_count: likesSnapshot.size || 0,
+        comments_count: comments.length || 0,
+        created_at: postData.createdAt || null,
+        comments
+      };
+
+      return { data: post };
+    } catch (error) {
+      console.error('Error fetching post:', error);
+      throw error;
+    }
+  });
+};
+// Add cache invalidation function for forum posts
+export const invalidateForumCache = () => {
+  // Get all keys from forumCache and delete any that start with "posts-" or "search-"
+  const keysToDelete = forumCache.keys()
+    .filter(key => key.startsWith('posts-') || key.startsWith('search-'));
+  
+  keysToDelete.forEach(key => forumCache.delete(key));
+  
+  return keysToDelete.length;
+};
+
+// Update mutation functions to invalidate cache
 
 export const createPost = async (userId: string, userName: string, title: string, content: string, category: string, imageUrl?: string, videoUrl?: string) => {
   try {
+    // Original implementation
     const postRef = await addDoc(collection(db, 'posts'), {
       userId,
       user_name: userName,
@@ -252,19 +396,18 @@ export const createPost = async (userId: string, userName: string, title: string
       updatedAt: serverTimestamp()
     });
 
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
+    // Get user data
+    const userData = await getUser(userId);
 
-    if (!userDoc.exists()) {
-      await setDoc(userRef, {
-        publishedPosts: [postRef.id]
-      });
-    } else {
-      await updateDoc(userRef, {
-        publishedPosts: arrayUnion(postRef.id)
-      });
-    }
+    // Update user's publishedPosts array
+    const publishedPosts = userData?.publishedPosts || [];
+    await updateUser(userId, {
+      publishedPosts: [...publishedPosts, postRef.id]
+    });
 
+    // Invalidate forum cache
+    invalidateForumCache();
+    
     return { data: { id: postRef.id } };
   } catch (error) {
     console.error('Error creating post:', error);
@@ -280,6 +423,7 @@ export const updatePost = async (postId: string, userId: string, updates: {
   video_url?: string;
 }) => {
   try {
+    // Original implementation
     const postRef = doc(db, 'posts', postId);
     const postDoc = await getDoc(postRef);
 
@@ -296,6 +440,10 @@ export const updatePost = async (postId: string, userId: string, updates: {
       updatedAt: serverTimestamp()
     });
 
+    // Invalidate both the specific post and forum listings
+    postCache.delete(`post-${postId}`);
+    invalidateForumCache();
+    
     return { success: true };
   } catch (error) {
     console.error('Error updating post:', error);
@@ -333,16 +481,20 @@ export const deletePost = async (postId: string, userId: string) => {
     // Delete the post
     await deleteDoc(postRef);
 
-    // Remove post ID from user's publishedPosts array
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    if (userDoc.exists()) {
-      const publishedPosts = userDoc.data().publishedPosts || [];
-      await updateDoc(userRef, {
+    // Replace this direct Firestore code with updateUser
+    const userData = await getUser(userId);
+    if (userData) {
+      const publishedPosts = userData.publishedPosts || [];
+      await updateUser(userId, {
         publishedPosts: publishedPosts.filter((id: string) => id !== postId)
       });
+      // No need to explicitly invalidate cache - updateUser does that
     }
 
+    // Invalidate cache after deleting a post
+    postCache.delete(`post-${postId}`);
+    invalidateForumCache();
+    
     return { success: true };
   } catch (error) {
     console.error('Error deleting post:', error);
@@ -361,7 +513,11 @@ export const createComment = async (postId: string, userId: string, userName: st
       updatedAt: serverTimestamp()
     });
 
-    return { data: { id: commentRef.id } };
+    // Invalidate the specific post and forum listings since comment counts changed
+    postCache.delete(`post-${postId}`);
+    invalidateForumCache();
+    
+    return commentRef.id;
   } catch (error) {
     console.error('Error creating comment:', error);
     throw error;
@@ -386,6 +542,9 @@ export const updateComment = async (postId: string, commentId: string, userId: s
       updatedAt: serverTimestamp()
     });
 
+    // Invalidate just the specific post cache
+    postCache.delete(`post-${postId}`);
+    
     return { success: true };
   } catch (error) {
     console.error('Error updating comment:', error);
@@ -414,6 +573,10 @@ export const deleteComment = async (postId: string, commentId: string, userId: s
     // Delete the comment
     await deleteDoc(commentRef);
 
+    // Invalidate both caches
+    postCache.delete(`post-${postId}`);
+    invalidateForumCache(); // Comment counts change affects listings
+    
     return { success: true };
   } catch (error) {
     console.error('Error deleting comment:', error);
@@ -435,6 +598,9 @@ export const createReply = async (postId: string, commentId: string, userId: str
       }
     );
 
+    // Invalidate post cache when a reply is added
+    postCache.delete(`post-${postId}`);
+    
     return { data: { id: replyRef.id } };
   } catch (error) {
     console.error('Error creating reply:', error);
@@ -460,6 +626,9 @@ export const updateReply = async (postId: string, commentId: string, replyId: st
       updatedAt: serverTimestamp()
     });
 
+    // Invalidate post cache when a reply is updated
+    postCache.delete(`post-${postId}`);
+    
     return { success: true };
   } catch (error) {
     console.error('Error updating reply:', error);
@@ -482,6 +651,9 @@ export const deleteReply = async (postId: string, commentId: string, replyId: st
 
     await deleteDoc(replyRef);
 
+    // Invalidate post cache when a reply is deleted
+    postCache.delete(`post-${postId}`);
+    
     return { success: true };
   } catch (error) {
     console.error('Error deleting reply:', error);
@@ -489,83 +661,41 @@ export const deleteReply = async (postId: string, commentId: string, replyId: st
   }
 };
 
-export const toggleLike = async (type: 'post' | 'comment' | 'reply', id: string, userId: string) => {
+export const toggleLike = async (
+  type: 'post' | 'comment' | 'reply', 
+  itemId: string, 
+  userId: string,
+  postId?: string // Add optional postId parameter for comment/reply likes
+) => {
   try {
-    const likesRef = collection(db, `${type}s`, id, 'likes');
+    const likesRef = collection(db, `${type}s`, itemId, 'likes');
     const userLikeQuery = query(likesRef, where('userId', '==', userId));
     const userLikeSnapshot = await getDocs(userLikeQuery);
 
-    if (userLikeSnapshot.empty) {
+    const isLiked = !userLikeSnapshot.empty;
+
+    if (isLiked) {
+      await deleteDoc(userLikeSnapshot.docs[0].ref);
+    } else {
       await addDoc(likesRef, {
         userId,
         createdAt: serverTimestamp()
       });
-      return true;
-    } else {
-      await deleteDoc(userLikeSnapshot.docs[0].ref);
-      return false;
     }
+
+    // If liking/unliking a post, invalidate both caches
+    if (type === 'post') {
+      postCache.delete(`post-${itemId}`);
+      invalidateForumCache(); // Like counts change affects listings
+    } 
+    // If liking a comment or reply, invalidate the post cache
+    else if (postId) {
+      postCache.delete(`post-${postId}`);
+    }
+    
+    return !isLiked;
   } catch (error) {
-    console.error('Error toggling like:', error);
-    throw error;
-  }
-};
-
-export const searchPosts = async (
-  searchQuery: string,
-  sortBy: 'date' | 'likes' | 'comments' = 'date',
-  page: number = 1
-) => {
-  try {
-    const postsRef = collection(db, 'posts');
-    const constraints: any[] = [];
-    constraints.push(orderBy(sortBy === 'date' ? 'createdAt' : sortBy, 'desc'));
-    const q = query(postsRef, ...constraints);
-    const querySnapshot = await getDocs(q);
-
-    let posts = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as {
-      id: string;
-      title: string;
-      content: string;
-      category: string;
-      image_url?: string;
-      video_url?: string;
-      userId: string;
-      user_name: string;
-      likes_count: number;
-      comments_count: number;
-      createdAt: any;
-    }[];
-
-    if (searchQuery) {
-      const queryLower = searchQuery.toLowerCase();
-      posts = posts.filter(post =>
-        post.title.toLowerCase().includes(queryLower) ||
-        post.content.toLowerCase().includes(queryLower) ||
-        post.category.toLowerCase().includes(queryLower)
-      );
-    }
-
-    if (sortBy === 'date') {
-      posts = posts.sort((a, b) => {
-        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
-        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime();
-        return bTime - aTime;
-      });
-    } else if (sortBy === 'likes') {
-      posts = posts.sort((a, b) => b.likes_count - a.likes_count);
-    } else if (sortBy === 'comments') {
-      posts = posts.sort((a, b) => b.comments_count - a.comments_count);
-    }
-
-    const start = (page - 1) * 10;
-    const pagedPosts = posts.slice(start, start + 10);
-    return { data: pagedPosts };
-  } catch (error) {
-    console.error('Error searching posts:', error);
+    console.error(`Error toggling like for ${type}:`, error);
     throw error;
   }
 };

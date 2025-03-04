@@ -1,57 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { User } from 'lucide-react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { updateUser } from '../lib/cache'; // Import user service
+import { auth } from '../lib/firebase';
 import { updateProfile } from 'firebase/auth';
 
 const UserProfile = () => {
-  const { user } = useAuth();
+  const { user} = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Initialize with user data if available, otherwise empty strings
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    bio: '',
-    jobTitle: '',
-    company: '',
-    location: '',
-    website: '',
-    twitter: '',
-    linkedin: ''
+    name: user?.name || '',
+    email: user?.email || '',
+    bio: user?.bio || '',
+    jobTitle: user?.jobTitle || '',
+    company: user?.company || '',
+    location: user?.location || '',
+    website: user?.website || '',
+    twitter: user?.twitter || '',
+    linkedin: user?.linkedin || ''
   });
 
   useEffect(() => {
-    const loadUserProfile = async () => {
-      if (!user) return;
-      try {
-        setIsLoading(true);
-        const userRef = doc(db, 'users', user.id);
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          setFormData({
-            name: user.name || '',
-            email: user.email || '',
-            bio: data.bio || '',
-            jobTitle: data.jobTitle || '',
-            company: data.company || '',
-            location: data.location || '',
-            website: data.website || '',
-            twitter: data.twitter || '',
-            linkedin: data.linkedin || ''
-          });
-        }
-      } catch (error) {
-        console.error('Error loading user profile:', error);
-        setError('Failed to load profile data');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadUserProfile();
+    // Update form data when user data becomes available or changes
+    if (user) {
+      setFormData({
+        name: user.name || '',
+        email: user.email || '',
+        bio: user.bio || '',
+        jobTitle: user.jobTitle || '',
+        company: user.company || '',
+        location: user.location || '',
+        website: user.website || '',
+        twitter: user.twitter || '',
+        linkedin: user.linkedin || ''
+      });
+      setIsLoading(false);
+    }
   }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -62,7 +50,7 @@ const UserProfile = () => {
       setIsSubmitting(true);
       setError(null);
 
-      // Update Firebase Auth profile
+      // Update Firebase Auth profile - still needed
       const authUser = auth.currentUser;
       if (authUser) {
         await updateProfile(authUser, {
@@ -70,17 +58,16 @@ const UserProfile = () => {
         });
       }
 
-      // Update Firestore profile
-      const userRef = doc(db, 'users', user.id);
-      await updateDoc(userRef, {
+      // Use updateUser instead of direct Firestore update
+      await updateUser(user.id, {
+        name: formData.name,
         bio: formData.bio,
         jobTitle: formData.jobTitle,
         company: formData.company,
         location: formData.location,
         website: formData.website,
         twitter: formData.twitter,
-        linkedin: formData.linkedin,
-        updatedAt: new Date()
+        linkedin: formData.linkedin
       });
 
       // Refresh the page to show the new changes

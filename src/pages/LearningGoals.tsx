@@ -6,6 +6,7 @@ import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import OpenAI from 'openai';
 import { generateTutorial } from '../lib/tutorials';
+import { tutorialCache } from '../lib/cache'; // Add this import
 
 interface LearningGoal {
   id: string;
@@ -103,6 +104,20 @@ const LearningGoals = () => {
       for (const topic of selectedTopics) {
         await generateTutorial(user.id, topic, newGoal.difficulty);
       }
+      
+      // Invalidate recommended tutorials cache to ensure Dashboard shows the latest recommendations
+      if (user.id) {
+        // Delete any recommended tutorials cache entries for this user
+        const recommendedCacheKeys = tutorialCache.keys().filter(key => 
+          key.includes(`recommended-tutorials-${user.id}`)
+        );
+        
+        if (recommendedCacheKeys.length > 0) {
+          recommendedCacheKeys.forEach(key => tutorialCache.delete(key));
+          console.log(`Invalidated ${recommendedCacheKeys.length} recommended tutorial cache entries for new goals`);
+        }
+      }
+      
     } catch (err) {
       console.error('Error generating tutorials for goal:', err);
       setError('Failed to generate tutorials from your goal.');
@@ -145,8 +160,25 @@ const LearningGoals = () => {
     }
   };
 
+  // Add a back to dashboard button with state
+  const handleBackToDashboard = () => {
+    navigate('/', { state: { fromGoals: true } });
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-4">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Learning Goals</h1>
+          <p className="text-gray-600">Set and track your AI learning journey</p>
+        </div>
+        <button
+          onClick={handleBackToDashboard}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+        >
+          Back to Dashboard
+        </button>
+      </div>
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex justify-between items-center mb-6">
           <div>

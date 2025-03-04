@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Settings, Bell, Lock, Eye, Mail } from 'lucide-react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { Settings, Bell, Lock} from 'lucide-react';
+import { getUser, updateUser } from '../lib/cache'; // Import user service
 
 // Common timezones list to use as fallback
 const commonTimezones = [
@@ -62,13 +61,9 @@ const UserSettings = () => {
       if (!user) return;
       try {
         setIsLoading(true);
-        const userRef = doc(db, 'users', user.id);
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          if (data.settings) {
-            setSettings(data.settings);
-          }
+        const userData = await getUser(user.id);
+        if (userData && userData.settings) {
+          setSettings(userData.settings);
         }
       } catch (error) {
         console.error('Error loading settings:', error);
@@ -89,11 +84,11 @@ const UserSettings = () => {
       setIsSubmitting(true);
       setError(null);
 
-      const userRef = doc(db, 'users', user.id);
-      await updateDoc(userRef, {
-        settings,
-        updatedAt: new Date()
+      await updateUser(user.id, {
+        settings
       });
+
+      setError('Settings saved successfully!');
 
     } catch (error) {
       console.error('Error updating settings:', error);

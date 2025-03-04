@@ -1,6 +1,7 @@
 import { db } from './firebase';
-import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { getLatestAssessment } from './api'; // <-- new import
+import { doc, getDoc, arrayUnion } from 'firebase/firestore';
+import { getLatestAssessment } from './api';
+import { getUser, updateUserField, getLearningGoals } from './cache'; // Added getLearningGoals import
 
 export interface Badge {
   id: string;
@@ -77,17 +78,15 @@ const getBadgeById = (badgeId: string) => {
 
 export const awardBadge = async (userId: string, badgeId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
+    const userData = await getUser(userId);
     
-    if (!userDoc.exists()) return;
+    if (!userData) return;
     
-    const badges = userDoc.data().badges || [];
+    const badges = userData.badges || [];
     if (badges.includes(badgeId)) return;
     
-    await updateDoc(userRef, {
-      badges: arrayUnion(badgeId)
-    });
+    // Use updateUserField instead of direct Firestore update
+    await updateUserField(userId, 'badges', arrayUnion(badgeId));
     
     return getBadgeById(badgeId);
   } catch (error) {
@@ -98,12 +97,11 @@ export const awardBadge = async (userId: string, badgeId: string) => {
 
 export const getUserBadges = async (userId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
+    const userData = await getUser(userId);
     
-    if (!userDoc.exists()) return [];
+    if (!userData) return [];
     
-    const badgeIds = userDoc.data().badges || [];
+    const badgeIds = userData.badges || [];
     return badgeIds.map((id: string) => getBadgeById(id)).filter(Boolean);
   } catch (error) {
     console.error('Error getting user badges:', error);
@@ -113,16 +111,13 @@ export const getUserBadges = async (userId: string) => {
 
 export const checkAndAwardBadges = async (userId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    if (!userDoc.exists()) return;
+    const userData = await getUser(userId);
+    if (!userData) return;
     
-    const userData = userDoc.data();
-    // New: fetch learning goals from subcollection
-    const goalsDoc = await getDoc(doc(db, 'users', userId, 'learningGoals', 'goals'));
-    const goals = goalsDoc.exists() ? (goalsDoc.data().goals || []) : [];
+    // Use getLearningGoals instead of direct Firestore access
+    const goals = await getLearningGoals(userId);
     
-    // New: fetch assessment if not already set in userData
+    // Use userData directly
     let hasAssessment = userData.hasCompletedAssessment;
     if (!hasAssessment) {
       const assessmentResult = await getLatestAssessment(userId);
@@ -190,8 +185,10 @@ export const checkAndAwardBadges = async (userId: string) => {
     }
     
     // Award new badges
+    let badgesAwarded = false;
     for (const badgeId of newBadges) {
       await awardBadge(userId, badgeId);
+      badgesAwarded = true;
     }
     
     return newBadges.map((id: string) => getBadgeById(id)).filter(Boolean);

@@ -1,9 +1,10 @@
 import OpenAI from 'openai';
 import { db } from './firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, or, and } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, or, and, doc, getDoc } from 'firebase/firestore';
 import { getLatestAssessment } from './api';
 import axios from 'axios';
 import { Timestamp } from 'firebase/firestore';
+import { tutorialCache } from './cache'; // Add missing import
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
@@ -267,6 +268,9 @@ export const generateTutorial = async (userId: string, query: string, difficulty
 
     // Save to Firestore
     const tutorialRef = await addDoc(collection(db, 'tutorials'), tutorialData);
+    
+    // Invalidate cache for tutorial listings
+    invalidateTutorialCache();
 
     return {
       id: tutorialRef.id,
@@ -482,137 +486,191 @@ const determineCategory = async (title: string, content: string): Promise<string
 
 // Get recommended tutorials based on user preferences and completed tutorials
 export const getRecommendedTutorials = async (userId: string, completedTutorialIds: string[], limit = 3) => {
-  try {
-    const tutorialsRef = collection(db, 'tutorials');
-    const assessment = await getLatestAssessment(userId);
-    const preferredMbti = assessment.data?.mbti_type;
+  const cacheKey = `recommended-tutorials-${userId}-${completedTutorialIds.join('-')}-${limit}`;
+  
+  return tutorialCache.getOrSet(cacheKey, async () => {
+    try {
+      const tutorialsRef = collection(db, 'tutorials');
+      const assessment = await getLatestAssessment(userId);
+      const preferredMbti = assessment.data?.mbti_type;
 
-    let combinedQuery;
-    if (preferredMbti) {
-      combinedQuery = query(
-        tutorialsRef,
-        or(
+      let combinedQuery;
+      if (preferredMbti) {
+        combinedQuery = query(
+          tutorialsRef,
+          or(
+            where('userId', '==', userId),
+            and(
+              where('userId', '!=', userId),
+              where('mbtiType', '==', preferredMbti)
+            )
+          ),
+          orderBy('likes', 'desc'),
+          orderBy('createdAt', 'desc')
+        );
+      } else {
+        combinedQuery = query(
+          tutorialsRef,
           where('userId', '==', userId),
-          and(
-            where('userId', '!=', userId),
-            where('mbtiType', '==', preferredMbti)
-          )
-        ),
-        orderBy('likes', 'desc'),
-        orderBy('createdAt', 'desc')
-      );
-    } else {
-      combinedQuery = query(
-        tutorialsRef,
-        where('userId', '==', userId),
-        orderBy('likes', 'desc'),
-        orderBy('createdAt', 'desc')
-      );
-    }
-
-    const snapshot = await getDocs(combinedQuery);
-    let tutorials: Tutorial[] = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Tutorial[];
-    
-    tutorials = tutorials.filter(t => !completedTutorialIds.includes(t.id));
-    
-    tutorials.sort((a, b) => {
-      // First sort by likes
-      if (b.likes !== a.likes) return b.likes - a.likes;
-      
-      // Then sort by date, safely handling different date formats
-      try {
-        // Handle Timestamp, Date, or potentially other formats
-        let timeA: number, timeB: number;
-        
-        if (a.createdAt instanceof Timestamp) {
-          timeA = a.createdAt.toDate().getTime();
-        } else if (a.createdAt instanceof Date) {
-          timeA = a.createdAt.getTime();
-        } else if (typeof a.createdAt === 'object' && a.createdAt !== null && 'seconds' in a.createdAt) {
-          // Handle Firestore timestamp object format
-          timeA = new Date((a.createdAt as {seconds: number}).seconds * 1000).getTime();
-        } else {
-          // Default to current time if we can't parse the date
-          timeA = 0;
-        }
-        
-        if (b.createdAt instanceof Timestamp) {
-          timeB = b.createdAt.toDate().getTime();
-        } else if (b.createdAt instanceof Date) {
-          timeB = b.createdAt.getTime();
-        } else if (typeof b.createdAt === 'object' && b.createdAt !== null && 'seconds' in b.createdAt) {
-          // Handle Firestore timestamp object format
-          timeB = new Date((b.createdAt as {seconds: number}).seconds * 1000).getTime();
-        } else {
-          // Default to current time if we can't parse the date
-          timeB = 0;
-        }
-        
-        return timeB - timeA;
-      } catch (error) {
-        console.warn('Error comparing dates:', error);
-        return 0; // Keep original order if date comparison fails
+          orderBy('likes', 'desc'),
+        );
       }
-    });
+
+      const snapshot = await getDocs(combinedQuery);
+      const tutorials = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })).filter(tutorial => !completedTutorialIds.includes(tutorial.id));
+
+      return tutorials.slice(0, limit);
+    } catch (error) {
+      console.error('Error getting recommended tutorials:', error);
+      return [];
+    }
+  }, 30 * 60 * 1000); // 30 min TTL for recommendations
+};
+
+// Update the getTutorials function to use cache properly
+export const getTutorials = async (
+  page: number = 1,
+  limit: number = 10,
+  searchQuery?: string,
+  categories?: string[],
+  difficulties?: string[],
+  sortField: string = 'createdAt',
+  sortDirection: 'asc' | 'desc' = 'desc'
+): Promise<Tutorial[]> => {
+  const limitVal = Math.min(50, Math.max(1, limit)); // Limit between 1-50
+  const cacheKey = `tutorials-${page}-${limitVal}-${searchQuery || 'none'}-${categories?.join(',') || 'all'}-${difficulties?.join(',') || 'all'}-${sortField}-${sortDirection}`;
+  
+  return tutorialCache.getOrSet(cacheKey, async () => {
+    try {
+      const tutorialsRef = collection(db, 'tutorials');
+      let allTutorials: Tutorial[] = [];
+      
+      // Since Firebase doesn't support native OR queries for multiple values in the same field,
+      // we'll need to handle the filtering logic appropriately
+      
+      if ((!categories || categories.length === 0) && (!difficulties || difficulties.length === 0)) {
+        // No filters case - just get everything with sorting
+        const tutorialQuery = query(
+          tutorialsRef,
+          orderBy(sortField, sortDirection)
+        );
+        const snapshot = await getDocs(tutorialQuery);
+        allTutorials = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Tutorial[];
+      } else {
+        // With filters case
+        const baseQuery = query(
+          tutorialsRef,
+          orderBy(sortField, sortDirection)
+        );
+        const snapshot = await getDocs(baseQuery);
+        
+        // Apply filters client-side for multi-select support
+        allTutorials = snapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as Tutorial[];
+        
+        if (categories && categories.length > 0) {
+          allTutorials = allTutorials.filter(t => categories.includes(t.category));
+        }
+        
+        if (difficulties && difficulties.length > 0) {
+          allTutorials = allTutorials.filter(t => 
+            difficulties.includes(t.difficulty.toLowerCase())
+          );
+        }
+      }
+      
+      // Apply search query filter
+      if (searchQuery) {
+        const queryLower = searchQuery.toLowerCase();
+        allTutorials = allTutorials.filter(t =>
+          t.title?.toLowerCase().includes(queryLower) ||
+          t.content?.toLowerCase().includes(queryLower)
+        );
+      }
+      
+      // Handle pagination
+      const totalCount = allTutorials.length;
+      const startIndex = (page - 1) * limitVal;
+      const paginatedTutorials = allTutorials.slice(startIndex, startIndex + limitVal);
+      
+      // Convert any timestamps to dates
+      return paginatedTutorials.map(tutorial => {
+        if (tutorial.createdAt && typeof tutorial.createdAt === 'object' && 'toDate' in tutorial.createdAt) {
+          return {
+            ...tutorial,
+            createdAt: tutorial.createdAt.toDate()
+          };
+        }
+        return tutorial;
+      });
+    } catch (error) {
+      console.error('Error fetching tutorials:', error);
+      return [];
+    }
+  });
+};
+
+// Add this function to tutorials.ts
+
+export const getTutorial = async (tutorialId: string) => {
+  const cacheKey = `tutorial-${tutorialId}`;
+  
+  return tutorialCache.getOrSet(cacheKey, async () => {
+    try {
+      const tutorialRef = doc(db, 'tutorials', tutorialId);
+      const tutorialDoc = await getDoc(tutorialRef);
+
+      if (!tutorialDoc.exists()) {
+        throw new Error('Tutorial not found');
+      }
+
+      const tutorialData = tutorialDoc.data() as Tutorial;
+      
+      return {
+        ...tutorialData,
+        id: tutorialDoc.id
+      };
+    } catch (error) {
+      console.error('Error fetching tutorial:', error);
+      throw error;
+    }
+  });
+};
+
+// Make sure to call this whenever a tutorial is updated or created
+export const saveTutorialInteraction = async (userId: string, tutorialId: string, interactions: any) => {
+  try {
+    const userInteractionRef = doc(db, 'users', userId, 'tutorialInteractions', tutorialId);
     
-    return tutorials.slice(0, limit);
+    // ... existing interaction update logic ...
+    
+    // Invalidate related cache entries
+    tutorialCache.delete(`tutorial-${tutorialId}`);
+    tutorialCache.delete(`recommended-tutorials-${userId}-${tutorialId}`);
+    
+    return { success: true };
   } catch (error) {
-    console.error('Error getting recommended tutorials:', error);
-    return [];
+    console.error('Error saving tutorial interaction:', error);
+    throw error;
   }
 };
 
-// Get tutorials with filtering and pagination
-export const getTutorials = async (
-  page: number = 1,
-  limitVal: number = 10,
-  searchQuery?: string,
-  category?: string,
-  difficulty?: string,
-  sortField: string = 'createdAt',
-  sortDirection: 'asc' | 'desc' = 'desc'
-) => {
-  try {
-    const tutorialsRef = collection(db, 'tutorials');
-    const constraints: any[] = [];
-    
-    if (difficulty) {
-      constraints.push(where('difficulty', '==', difficulty));
-    }
-    constraints.push(orderBy(sortField, sortDirection));
-    
-    const tutorialQuery = query(tutorialsRef, ...constraints);
-    const snapshot = await getDocs(tutorialQuery);
-    
-    const lowerBound = (page - 1) * limitVal;
-    const upperBound = lowerBound + limitVal;
-    const docs = snapshot.docs.slice(lowerBound, upperBound);
-    
-    let tutorials = docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Tutorial[];
-
-    if (searchQuery) {
-      const queryLower = searchQuery.toLowerCase();
-      tutorials = tutorials.filter(t =>
-        t.title.toLowerCase().includes(queryLower) ||
-        t.content.toLowerCase().includes(queryLower) ||
-        t.category.toLowerCase().includes(queryLower)
-      );
-    }
-
-    if (category) {
-      const catLower = category.toLowerCase();
-      tutorials = tutorials.filter(t => t.category.toLowerCase() === catLower);
-    }
-
-    return tutorials;
-  } catch (error) {
-    console.error('Error getting tutorials:', error);
-    return [];
-  }
+// Function to invalidate tutorial cache items
+export const invalidateTutorialCache = () => {
+  // Get all keys from tutorialCache and delete any that start with 'tutorials-'
+  const keysToDelete = tutorialCache.keys()
+    .filter(key => key.startsWith('tutorials-') || key === 'combined-content-tutorials');
+  
+  keysToDelete.forEach(key => tutorialCache.delete(key));
+  
+  return keysToDelete.length;
 };

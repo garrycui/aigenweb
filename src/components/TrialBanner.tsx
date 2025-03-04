@@ -9,7 +9,7 @@ interface TrialBannerProps {
 const TrialBanner: React.FC<TrialBannerProps> = ({ onUpgrade }) => {
   const { user } = useAuth();
 
-  if (!user?.trialEndsAt || user.subscription.status === 'active' || user.subscription.status === 'expired') return null;
+  if (!user || !user.trialEndsAt || user?.isTrialing === false) return null;
 
   const trialEndsAt = new Date(user.trialEndsAt);
   const now = new Date();

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
-  MessageSquare, ThumbsUp, Clock, Share2, Bookmark, ArrowLeft,
-  MoreVertical, Edit, Trash2, Reply 
+  MessageSquare, ThumbsUp, ArrowLeft, Edit, Trash2, Reply 
 } from 'lucide-react';
 import { 
   fetchPost, createComment, createReply, toggleLike,
@@ -284,39 +283,30 @@ const PostDetail = () => {
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm font-medium rounded-full">
-              {post.category}
-            </span>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center text-gray-500 text-sm">
-                <Clock className="h-4 w-4 mr-1" />
-                {formatDate(post.created_at)}
+          {/* Post Header & Content */}
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-3xl font-bold text-gray-900">{post.title}</h1>
+            {user && user.id === post.userId && (
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => setIsEditPostModalOpen(true)}
+                  className="p-2 text-gray-500 hover:text-indigo-600 rounded"
+                >
+                  <Edit className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={() => {
+                    setDeleteType('post');
+                    setDeleteItemId(post.id);
+                    setIsDeleteModalOpen(true);
+                  }}
+                  className="p-2 text-gray-500 hover:text-red-600 rounded"
+                >
+                  <Trash2 className="h-5 w-5" />
+                </button>
               </div>
-              {user && user.id === post.userId && (
-                <div className="relative">
-                  <button
-                    onClick={() => setIsEditPostModalOpen(true)}
-                    className="p-2 text-gray-500 hover:text-indigo-600 rounded-full"
-                  >
-                    <Edit className="h-5 w-5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setDeleteType('post');
-                      setDeleteItemId(post.id);
-                      setIsDeleteModalOpen(true);
-                    }}
-                    className="p-2 text-gray-500 hover:text-red-600 rounded-full"
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
           </div>
-          
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">{post.title}</h1>
 
           {post.image_url && (
             <div className="mb-6">

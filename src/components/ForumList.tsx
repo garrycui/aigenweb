@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { fetchPosts, searchPosts, toggleLike } from '../lib/api';
+import { forumCache } from '../lib/cache'; // Import the cache
 import { useAuth } from '../context/AuthContext';
 import { MessageSquare, ThumbsUp } from 'lucide-react';
 
@@ -25,6 +26,7 @@ interface ForumListProps {
   page?: number;
 }
 
+// Add state for cache monitoring
 const ForumList: React.FC<ForumListProps> = ({
   searchQuery = '',
   sortBy = 'date',
@@ -37,6 +39,15 @@ const ForumList: React.FC<ForumListProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(page);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery);
+  // Add cache monitoring states
+  const [cacheHits, setCacheHits] = useState(0);
+  const [cacheMisses, setCacheMisses] = useState(0);
+  const [loadTime, setLoadTime] = useState<number | null>(null);
+  const [pageHistory, setPageHistory] = useState<{[pageNum: number]: string}>({});
+  const [lastVisible, setLastVisible] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [skeletonCount, setSkeletonCount] = useState(3);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -51,11 +62,65 @@ const ForumList: React.FC<ForumListProps> = ({
   useEffect(() => {
     const loadPosts = async () => {
       try {
-        setIsLoading(true);
-        const { data } = debouncedSearchQuery
-          ? await searchPosts(debouncedSearchQuery, sortBy, currentPage)
-          : await fetchPosts(sortBy, currentPage);
-        const formattedData = data.map((post: any) => ({
+        if (!initialLoad) {
+          setIsLoading(true);
+        }
+        
+        // Record start time to measure performance
+        const startTime = performance.now();
+        
+        // Determine lastVisibleId for pagination
+        let lastVisibleId = undefined;
+        if (currentPage > 1) {
+          // Use the stored last document from the previous page
+          lastVisibleId = pageHistory[currentPage - 1] || undefined;
+        }
+        
+        // Construct cache key
+        const cacheKey = debouncedSearchQuery 
+          ? `search-${debouncedSearchQuery}-${sortBy}-page${currentPage}`
+          : lastVisibleId
+            ? `posts-${sortBy}-after-${lastVisibleId}`
+            : `posts-${sortBy}-page${currentPage}`;
+          
+        // Check if data is available in cache
+        const cachedData = forumCache.get(cacheKey);
+        
+        let response;
+        if (cachedData && cachedData.data && Array.isArray(cachedData.data)) {
+          // Validate cache response has all required fields
+          response = cachedData;
+          setCacheHits(prev => prev + 1);
+        } else {
+          // If not in cache or invalid, fetch from API
+          response = debouncedSearchQuery
+            ? await searchPosts(debouncedSearchQuery, sortBy, currentPage)
+            : await fetchPosts(sortBy, currentPage, lastVisibleId);
+          
+          // Only cache valid responses
+          if (response && response.data) {
+            forumCache.set(cacheKey, response);
+            setCacheMisses(prev => prev + 1);
+          }
+        }
+        
+        const { data, pagination } = response;
+        
+        // Record end time and update stats
+        const endTime = performance.now();
+        setLoadTime(endTime - startTime);
+
+        // Store the last visible document ID for pagination
+        if (pagination?.lastVisible) {
+          setLastVisible(pagination.lastVisible);
+          setPageHistory(prev => ({...prev, [currentPage]: pagination.lastVisible}));
+          setHasMore(pagination.hasMore);
+        } else {
+          setHasMore(false);
+        }
+
+        // Process the data as before
+        const formattedData = data.map((post: Record<string, any>) => ({
           id: post.id,
           title: post.title || '',
           content: post.content || '',
@@ -70,11 +135,13 @@ const ForumList: React.FC<ForumListProps> = ({
           is_liked: post.is_liked
         }));
         setPosts(formattedData || []);
+        setSkeletonCount(formattedData?.length || 3);
       } catch (err) {
         console.error('Error loading posts:', err);
         setError('Failed to load posts. Please try again later.');
       } finally {
         setIsLoading(false);
+        setInitialLoad(false);
       }
     };
 
@@ -88,22 +155,95 @@ const ForumList: React.FC<ForumListProps> = ({
     }
 
     try {
-      const isLiked = await toggleLike('post', postId, user.id);
+      // Optimistically update UI
       setPosts(currentPosts =>
         currentPosts.map(post =>
           post.id === postId
             ? {
                 ...post,
-                likes_count: post.likes_count + (isLiked ? 1 : -1),
+                likes_count: post.likes_count + (post.is_liked ? -1 : 1),
+                is_liked: !post.is_liked
+              }
+            : post
+        )
+      );
+      
+      // Call API to update like status
+      const isLiked = await toggleLike('post', postId, user.id);
+      
+      // If response doesn't match our optimistic update, correct it
+      setPosts(currentPosts =>
+        currentPosts.map(post =>
+          post.id === postId
+            ? {
+                ...post,
+                likes_count: post.likes_count + (isLiked ? 1 : -1) - (post.is_liked ? 1 : 0),
                 is_liked: isLiked
               }
             : post
         )
       );
+      
+      // Only invalidate related cache entries, not all forum cache
+      const postKey = `post-${postId}`;
+      forumCache.delete(postKey);
+      
+      // Only invalidate the current page in the cache
+      const currentPageKey = debouncedSearchQuery 
+        ? `search-${debouncedSearchQuery}-${sortBy}-page${currentPage}`
+        : `posts-${sortBy}-page${currentPage}`;
+      
+      forumCache.delete(currentPageKey);
+      
     } catch (error) {
       console.error('Error toggling like:', error);
+      // Revert optimistic update on error
+      setPosts(currentPosts =>
+        currentPosts.map(post =>
+          post.id === postId
+            ? {
+                ...post,
+                likes_count: post.likes_count + (post.is_liked ? 1 : -1),
+                is_liked: !post.is_liked
+              }
+            : post
+        )
+      );
     }
   };
+
+  // Skeleton loader component for better UX during loading
+  const PostSkeleton = () => (
+    <div className="bg-white rounded-lg shadow-md overflow-hidden animate-pulse">
+      <div className="p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <div className="h-6 w-24 bg-gray-200 rounded-full"></div>
+          <div className="h-4 w-16 bg-gray-200 rounded"></div>
+        </div>
+        <div className="h-7 w-3/4 bg-gray-200 rounded mb-2"></div>
+        <div className="h-4 w-full bg-gray-200 rounded mb-2"></div>
+        <div className="h-4 w-2/3 bg-gray-200 rounded mb-4"></div>
+        <div className="h-48 w-full bg-gray-200 rounded-lg mb-4"></div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t">
+          <div className="flex items-center space-x-4">
+            <div className="h-5 w-14 bg-gray-200 rounded"></div>
+            <div className="h-5 w-14 bg-gray-200 rounded"></div>
+          </div>
+          <div className="h-4 w-32 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (isLoading && initialLoad) {
+    return (
+      <div className="space-y-6">
+        {[...Array(skeletonCount)].map((_, index) => (
+          <PostSkeleton key={index} />
+        ))}
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -135,8 +275,33 @@ const ForumList: React.FC<ForumListProps> = ({
     );
   }
 
+  // Add UI for cache monitoring info
   return (
     <>
+      {/* Cache metrics display - add this at the top */}
+      <div className="bg-blue-50 p-3 rounded-lg mb-4 text-xs text-blue-700">
+        <h4 className="font-medium mb-1">Cache metrics:</h4>
+        <div className="flex space-x-4">
+          <span>Hits: {cacheHits}</span>
+          <span>Misses: {cacheMisses}</span>
+          <span>Last load: {loadTime ? `${loadTime.toFixed(2)}ms` : 'N/A'}</span>
+          <span>Cache size: {forumCache.size} items</span>
+        </div>
+      </div>
+      
+      {/* Loading overlay for subsequent page loads */}
+      {isLoading && !initialLoad && (
+        <div className="fixed inset-0 bg-black/10 flex justify-center items-start z-10">
+          <div className="mt-20 bg-white p-6 rounded-lg shadow-lg">
+            <div className="flex items-center space-x-3">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+              <p>Refreshing posts...</p>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Your existing forum list rendering */}
       <div className="space-y-6">
         {posts.map(post => (
           <div key={post.id} className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -210,7 +375,7 @@ const ForumList: React.FC<ForumListProps> = ({
         <span>Page {currentPage}</span>
         <button
           onClick={() => setCurrentPage((p) => p + 1)}
-          disabled={posts.length < 10} // Disable Next if fewer than 10 posts are returned
+          disabled={!hasMore} // Use hasMore instead of posts.length
           className="px-3 py-1 border rounded disabled:opacity-50"
         >
           Next

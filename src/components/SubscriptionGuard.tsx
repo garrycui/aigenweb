@@ -1,8 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import SubscriptionModal from './SubscriptionModal';
 
 interface SubscriptionGuardProps {
@@ -16,51 +14,34 @@ const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({ children }) => {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const navigate = useNavigate();
 
+  // Use useMemo to calculate subscription status
+  const subscriptionStatus = useMemo(() => {
+    if (!user) return { hasNoAccess: false, isLoading: true };
+    
+    try {
+      const isExpired = user.subscriptionStatus === 'expired';
+      const now = new Date();
+      const trialEndsAt = user.trialEndsAt;
+      const isTrialExpired = trialEndsAt ? now > trialEndsAt : true;
+      const subscriptionEnd = user.subscriptionEnd;
+      const isSubscriptionEnded = subscriptionEnd ? now > subscriptionEnd : false;
+      const hasNoAccess = (isExpired || isSubscriptionEnded) && isTrialExpired;
+      
+      return { hasNoAccess, isLoading: false };
+    } catch (error) {
+      console.error('Error checking subscription:', error);
+      return { hasNoAccess: false, isLoading: false };
+    }
+  }, [user]);
+
   useEffect(() => {
-    const checkSubscription = async () => {
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const userRef = doc(db, 'users', user.id);
-        const userDoc = await getDoc(userRef);
-        
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          
-          // Check if subscription is expired
-          const isExpired = userData.subscriptionStatus === 'expired';
-          
-          // Also check trial status
-          const now = new Date();
-          const trialEndsAt = userData.trialEndsAt?.toDate();
-          const isTrialExpired = trialEndsAt ? now > trialEndsAt : true;
-          
-          // Check subscription end date
-          const subscriptionEnd = userData.subscriptionEnd?.toDate();
-          const isSubscriptionEnded = subscriptionEnd ? now > subscriptionEnd : false;
-          
-          // User has no access if subscription is expired or ended, and trial is expired
-          const hasNoAccess = (isExpired || isSubscriptionEnded) && isTrialExpired;
-          
-          setIsSubscriptionExpired(hasNoAccess);
-          
-          // Automatically open modal if subscription is expired
-          if (hasNoAccess) {
-            setIsModalOpen(true);
-          }
-        }
-      } catch (error) {
-        console.error('Error checking subscription:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkSubscription();
-  }, [user, navigate]);
+    setIsSubscriptionExpired(subscriptionStatus.hasNoAccess);
+    setIsLoading(subscriptionStatus.isLoading);
+    
+    if (subscriptionStatus.hasNoAccess) {
+      setIsModalOpen(true);
+    }
+  }, [subscriptionStatus]);
 
   const handleCloseModal = () => {
     setIsModalOpen(false);

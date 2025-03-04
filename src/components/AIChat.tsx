@@ -2,14 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, RefreshCw, Clock, ChevronDown, ChevronRight, Trash2, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { 
-  processChatMessage, 
-  getChatHistory, 
   getUserSessions,
   setCurrentSession,
   createNewSession,
   deleteSession,
   getSessionMessages,
-  processChatWithSession 
+  processChatWithSession,
+  clearAllChatHistory 
 } from '../lib/chat';
 import AIChatCard from './AIChatCard';
 
@@ -192,6 +191,37 @@ const AIChat = () => {
       }
     } catch (error) {
       console.error('Error deleting session:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Clear all chat history
+  const handleClearHistory = async () => {
+    if (!user || isLoading) return;
+    
+    if (!window.confirm('Are you sure you want to clear all conversation history? This cannot be undone.')) {
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      await clearAllChatHistory(user.id);
+      
+      // Reset the UI state
+      setActiveSessions([]);
+      setArchivedSessions([]);
+      setMessages([]);
+      setCurrentSessionId('');
+      setContainerHeight('min-h-[60px]');
+      
+      // Get the new (empty) session created by clearAllChatHistory
+      const { activeSessions, currentSessionId } = await getUserSessions(user.id);
+      setActiveSessions(activeSessions);
+      setCurrentSessionId(currentSessionId);
+      
+    } catch (error) {
+      console.error('Error clearing history:', error);
     } finally {
       setIsLoading(false);
     }
@@ -413,9 +443,20 @@ const AIChat = () => {
               {/* Active conversations */}
               {activeSessions.length > 0 && (
                 <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">
-                    Recent Conversations
-                  </h3>
+                  <div className="flex justify-between items-center mb-2 px-1">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Recent Conversations
+                    </h3>
+                    {activeSessions.length > 0 && (
+                      <button
+                        onClick={handleClearHistory}
+                        className="text-xs text-red-500 hover:text-red-700"
+                        title="Clear all conversations"
+                      >
+                        Clear History
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-1">
                     {activeSessions.map(session => (
                       <div

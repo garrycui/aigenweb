@@ -34,7 +34,7 @@ const Forum = () => {
           Share Your Story
         </Link>
       </div>
-      
+
       {/* Search and Sort Container */}
       <div className="bg-white rounded-lg shadow-md p-4 mb-6">
         <div className="flex flex-col sm:flex-row gap-4">

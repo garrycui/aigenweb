@@ -7,6 +7,7 @@ import {
 import { db } from './firebase';
 import { getLatestAssessment } from './api';
 import { generateChatResponse, extractKeyword} from './openai';
+import { tutorialCache, postCache } from './cache';
 
 interface ChatMessage {
   content: string;
@@ -14,13 +15,6 @@ interface ChatMessage {
   sentiment?: 'positive' | 'negative' | 'neutral';
   timestamp: string;
 }
-
-let cachedPosts: { id: string; title: string; content: string }[] | null = null;
-let cachedTutorials: { id: string; title: string; content: string }[] | null = null;
-let lastCacheUpdate: number | null = null;
-let fuse: Fuse<{ id: string; title: string; content: string }> | null = null;
-
-const CACHE_EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Initialize chat history for a user in Firestore.
@@ -101,65 +95,71 @@ export const getChatHistory = async (
 /**
  * Fetch cached tutorials and posts from Firestore with Fuse.js search.
  */
-// Update return type to include content type
+// Fix the function to properly use cache and handle errors
 async function fetchCombinedContent(searchPhrase: string): Promise<Array<{ 
   id: string; 
   title: string; 
   content: string;
   type: 'post' | 'tutorial';
-}>>{
-  const now = Date.now();
+}>> {
+  // Create unique cache keys for posts and tutorials collection
+  const postsCacheKey = 'combined-content-posts';
+  const tutorialsCacheKey = 'combined-content-tutorials';
   
-  // Refresh cache every 24 hours
-  if (!cachedPosts || !cachedTutorials || !lastCacheUpdate || now - lastCacheUpdate > CACHE_EXPIRATION_TIME) {
-    const postsRef = collection(db, 'posts');
-    const tutorialsRef = collection(db, 'tutorials');
-
-    const [postsSnap, tutorialsSnap] = await Promise.all([getDocs(postsRef), getDocs(tutorialsRef)]);
+  try {
+    // Get posts from cache or fetch them
+    const cachedPosts = await postCache.getOrSet(postsCacheKey, async () => {
+      try {
+        const postsRef = collection(db, 'posts');
+        const postsSnap = await getDocs(postsRef);
+        return postsSnap.docs.map(doc => ({
+          id: doc.id,
+          title: (doc.data().title || '').toString(),
+          content: (doc.data().content || '').toString(),
+          type: 'post' as const
+        }));
+      } catch (error) {
+        console.error('Error fetching posts for search:', error);
+        return [];
+      }
+    }, 24 * 60 * 60 * 1000); // 24 hour TTL for this specific cache
     
-    cachedPosts = postsSnap.docs.map(doc => ({
-      id: doc.id,
-      title: doc.data().title.toString(),
-      content: doc.data().content.toString()
-    }));
-
-    cachedTutorials = tutorialsSnap.docs.map(doc => ({
-      id: doc.id,
-      title: doc.data().title.toString(),
-      content: doc.data().content.toString()
-    }));
-
-    // Include both types in search but maintain separate caches
-    fuse = new Fuse(
-      [...cachedPosts.map(post => ({...post, type: 'post'})), 
-       ...cachedTutorials.map(tutorial => ({...tutorial, type: 'tutorial'}))], 
-      {
-        keys: ['title'],
-        threshold: 0.5
+    // Get tutorials from cache or fetch them
+    const cachedTutorials = await tutorialCache.getOrSet(tutorialsCacheKey, async () => {
+      try {
+        const tutorialsRef = collection(db, 'tutorials');
+        const tutorialsSnap = await getDocs(tutorialsRef);
+        return tutorialsSnap.docs.map(doc => ({
+          id: doc.id,
+          title: (doc.data().title || '').toString(),
+          content: (doc.data().content || '').toString(),
+          type: 'tutorial' as const
+        }));
+      } catch (error) {
+        console.error('Error fetching tutorials for search:', error);
+        return [];
       }
-    );
-
-    lastCacheUpdate = now;
+    }, 24 * 60 * 60 * 1000); // 24 hour TTL for this specific cache
+    
+    // Only create Fuse instance if we have data
+    if (searchPhrase && (cachedPosts.length > 0 || cachedTutorials.length > 0)) {
+      const fuse = new Fuse(
+        [...cachedPosts, ...cachedTutorials], 
+        {
+          keys: ['title', 'content'],
+          threshold: 0.5,
+          ignoreLocation: true
+        }
+      );
+      
+      return fuse.search(searchPhrase).map(result => result.item);
+    }
+    
+    return [...cachedPosts, ...cachedTutorials];
+  } catch (error) {
+    console.error('Error in fetchCombinedContent:', error);
+    return [];
   }
-
-  if (!fuse) {
-    fuse = new Fuse(
-      [...cachedPosts.map(post => ({...post, type: 'post'})), 
-       ...cachedTutorials.map(tutorial => ({...tutorial, type: 'tutorial'}))], 
-      {
-        keys: ['title'],
-        threshold: 0.5
-      }
-    );
-  }
-
-  const results = fuse.search(searchPhrase).slice(0, 3).map(result => result.item as { 
-    id: string; 
-    title: string; 
-    content: string;
-    type: 'post' | 'tutorial';
-  });
-  return results;
 }
 
 /**
@@ -228,7 +228,6 @@ interface ChatSessionsDoc {
 
 // Constants for session management
 const MAX_ACTIVE_SESSIONS = 5;
-const SESSION_INACTIVITY_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Initialize sessions document for a user
@@ -605,8 +604,11 @@ export const processChatWithSession = async (userId: string, sessionId: string, 
       const contentItems = await fetchCombinedContent(searchPhrase);
 
       if (contentItems.length) {
+        // Limit to 3 recommendations
+        const limitedItems = contentItems.slice(0, 3);
+        
         const recommendationsText = `Here are some helpful resources:\n` +
-          contentItems.map(item => `• ${item.title}`).join('\n');
+          limitedItems.map(item => `• ${item.title}`).join('\n');
 
         // Save recommendations as a separate assistant message
         await addMessageToSession(userId, sessionId, recommendationsText, 'assistant');
@@ -615,7 +617,7 @@ export const processChatWithSession = async (userId: string, sessionId: string, 
           response: recommendationsText,
           sentiment,
           userContext: { mbtiType, aiPreference },
-          recommendations: contentItems
+          recommendations: limitedItems
         }];
       }
     }

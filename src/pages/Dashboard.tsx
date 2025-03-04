@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, Target, Trophy, TrendingUp, ArrowRight } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom'; // Add useLocation import
 import AIChat from '../components/AIChat';
 import DailyContent from '../components/DailyContent';
 import ReviewModal from '../components/ReviewModal';
@@ -12,8 +12,8 @@ import { useReviewPrompt } from '../hooks/useReviewPrompt';
 import { getRecommendedTutorials, Tutorial } from '../lib/tutorials';
 import { getUserBadges, checkAndAwardBadges, Badge } from '../lib/badges';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc, collection, getDocs, query, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { serverTimestamp } from 'firebase/firestore';
+import { getUser, updateUser, getLearningGoals, getUserMoodEntries, tutorialCache } from '../lib/cache'; // Add tutorialCache import
 import { getLatestAssessment } from '../lib/api';
 import GrowthModal from '../components/GrowthModal';
 import { motion } from 'framer-motion';
@@ -52,6 +52,7 @@ const Dashboard = () => {
   const [isGrowthModalOpen, setIsGrowthModalOpen] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const location = useLocation(); // Add this to track when we navigate back to Dashboard
   
   const [recommendedTutorials, setRecommendedTutorials] = useState<Tutorial[]>([]);
   const [badges, setBadges] = useState<Badge[]>([]);
@@ -85,20 +86,19 @@ const Dashboard = () => {
       try {
         setIsLoading(true);
         
-        const userRef = doc(db, 'users', user.id);
-        const userDoc = await getDoc(userRef);
-        const userData = userDoc.data();
+        // Use cache service for user data
+        const userData = await getUser(user.id);
+        if (!userData) return;
         
-        setCompletedTutorialIds(userData?.completedTutorials || []);
+        setCompletedTutorialIds(userData.completedTutorials || []);
 
-        const goalsRef = doc(db, 'users', user.id, 'learningGoals', 'goals');
-        const goalsDoc = await getDoc(goalsRef);
-        const goals = goalsDoc.data()?.goals || [];
+        // Use cache service for learning goals instead of direct Firestore
+        const goals = await getLearningGoals(user.id);
         const completedGoals = goals.filter((g: any) => g.status === 'completed').length;
         const totalGoalsSet = goals.length;
 
-        const completedTutorials = userData?.completedTutorials?.length || 0;
-        const publishedPosts = userData?.publishedPosts?.length || 0;
+        const completedTutorials = userData.completedTutorials?.length || 0;
+        const publishedPosts = userData.publishedPosts?.length || 0;
 
         const assessmentResult = await getLatestAssessment(user.id);
 
@@ -122,7 +122,17 @@ const Dashboard = () => {
         await checkAndAwardBadges(user.id);
         const userBadges = await getUserBadges(user.id);
         setBadges(userBadges);
-
+        
+        // Force tutorial recommendations to refresh by clearing their cache
+        // This ensures that when coming back from the learning goals page, we see the latest recommendations
+        if (location.state?.fromGoals) {
+          const recommendedCacheKeys = tutorialCache.keys().filter((key: string) => 
+            key.includes(`recommended-tutorials-${user.id}`)
+          );
+          recommendedCacheKeys.forEach((key: string) => tutorialCache.delete(key));
+          console.log("Cleared recommendations cache after returning from goals page");
+        }
+        
         const recTutorials = await getRecommendedTutorials(user.id, completedTutorialIds, 3);
         setRecommendedTutorials(recTutorials);
 
@@ -134,26 +144,24 @@ const Dashboard = () => {
     };
 
     loadDashboardData();
-  }, [user]);
+  }, [user, location.key]); // Add location.key as dependency to refresh when navigating
 
-  const fetchPsychDataForDashboard = async () => {
+  const fetchPsychDataForDashboard = async (forceRefresh = false) => {
     if (!user) return;
     try {
-      const collRef = collection(db, 'users', user.id, 'moodEntries');
-      const q = query(collRef, orderBy('createdAt', 'asc'));
-      const snapshot = await getDocs(q);
-      const records: PsychRecord[] = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...(docSnap.data() as { rating: number; mood: string; notes: string; tags: string[]; createdAt: any }),
-      }));
+      // Use cache service but force a refresh if needed
+      const records = await getUserMoodEntries(user.id, forceRefresh) as PsychRecord[];
       setPsychRecords(records);
+      
       if (records.length) {
-        setLatestRating(records[records.length - 1].rating);
+        // Get the most recent entry (first in the array since they're ordered by descending date)
+        setLatestRating(records[0].rating);
       }
       if (records.length > 1) {
-        const first = records[0].rating;
-        const last = records[records.length - 1].rating;
-        setPsychTrend(last - first);
+        // Calculate trend between oldest and newest entries
+        const oldest = records[records.length - 1].rating;
+        const newest = records[0].rating;
+        setPsychTrend(newest - oldest);
       }
     } catch (error) {
       console.error('Error fetching psychology data for dashboard:', error);
@@ -186,8 +194,8 @@ const Dashboard = () => {
     
     // Track when a user dismisses without submitting
     if (user) {
-      const userRef = doc(db, 'users', user.id);
-      updateDoc(userRef, {
+      // Use updateUser instead of direct Firestore
+      updateUser(user.id, {
         reviewDismissedAt: serverTimestamp()
       }).catch(err => console.error('Error updating dismissal time:', err));
     }
@@ -499,7 +507,7 @@ const Dashboard = () => {
       <GrowthModal
         isOpen={isGrowthModalOpen}
         onClose={() => setIsGrowthModalOpen(false)}
-        onUpdate={fetchPsychDataForDashboard}
+        onUpdate={() => fetchPsychDataForDashboard(true)}
       />
     </div>
   );

@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ThumbsUp, Eye, Clock, Share2, Bookmark, Code, ChevronRight, ChevronLeft } from 'lucide-react';
-import { doc, getDoc, updateDoc, increment, arrayUnion, setDoc } from 'firebase/firestore';
+import { doc, updateDoc, increment } from 'firebase/firestore'; // Remove unused imports
 import { db } from '../lib/firebase';
-import { Tutorial } from '../lib/tutorials';
+import { Tutorial, getTutorial } from '../lib/tutorials';
+import { getUser, getUserSubcollectionDoc, updateUserSubcollectionDoc } from '../lib/cache'; // Update imports
 import { useAuth } from '../context/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import CodeEditor from '../components/CodeEditor';
 import TutorialProgress from '../components/TutorialProgress';
 import ResourceCard from '../components/ResourceCard';
 import TutorialCelebration from '../components/TutorialCelebration';
+import { markTutorialComplete } from '../lib/progress';
 
 interface QuizAnswer {
   questionId: number;
@@ -37,6 +39,8 @@ const TutorialDetail = () => {
   const [currentWebIndex, setCurrentWebIndex] = useState(0);
   const [allSectionsCompleted, setAllSectionsCompleted] = useState(false);
   const [celebrationVisible, setCelebrationVisible] = useState(false);
+  const [cacheHit, setCacheHit] = useState(false);
+  const [loadTime, setLoadTime] = useState<number | null>(null);
 
   const handlePrevVideo = () => {
     if (!tutorial) return;
@@ -72,69 +76,58 @@ const TutorialDetail = () => {
 
       try {
         setIsLoading(true);
-        const tutorialRef = doc(db, 'tutorials', id);
-        const tutorialDoc = await getDoc(tutorialRef);
-
-        if (!tutorialDoc.exists()) {
-          setError('Tutorial not found');
-          return;
-        }
-
-        // Increment view count
-        await updateDoc(tutorialRef, {
+        
+        // Fetch tutorial data using cached method
+        const tutorialData = await getTutorial(id);
+        
+        // Increment view count directly on Firestore (this is fine as it's tutorial data, not user data)
+        await updateDoc(doc(db, 'tutorials', id), {
           views: increment(1)
         });
 
-        const tutorialData = tutorialDoc.data() as Tutorial;
-
         // Get user's interaction status if logged in
         if (user) {
-          const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', id);
-          const userInteractionDoc = await getDoc(userInteractionRef);
+          // Use centralized user service to get tutorial interaction
+          const interactionData = await getUserSubcollectionDoc(user.id, 'tutorialInteractions', id);
           
-          if (userInteractionDoc.exists()) {
-            const data = userInteractionDoc.data();
-            setIsLiked(data.liked || false);
-            setIsBookmarked(data.bookmarked || false);
-            setCompletedSections(data.completedSections || []);
-            setTimeSpent(data.timeSpent || 0);
+          if (interactionData && Object.keys(interactionData).length > 0) {
+            setIsLiked(interactionData.liked || false);
+            setIsBookmarked(interactionData.bookmarked || false);
+            setCompletedSections(interactionData.completedSections || []);
+            setTimeSpent(interactionData.timeSpent || 0);
             
             // If quiz answers exist, restore them
-            if (data.quizAnswers) {
-              setQuizAnswers(data.quizAnswers);
-              setQuizScore(data.quizScore || null);
+            if (interactionData.quizAnswers) {
+              setQuizAnswers(interactionData.quizAnswers);
+              setQuizScore(interactionData.quizScore || null);
             }
             
             // Check if all sections are completed
-            const allCompleted = data.completedSections && 
-              data.completedSections.length === tutorialData.sections.length;
+            const allCompleted = interactionData.completedSections && 
+              interactionData.completedSections.length === tutorialData.sections.length;
             setAllSectionsCompleted(allCompleted);
             
             // Auto-show quiz if all sections are completed but quiz isn't passed yet
-            if (allCompleted && !data.quizPassed) {
+            if (allCompleted && !interactionData.quizPassed) {
               setShowQuiz(true);
             }
 
             // Show the user's first uncompleted section
             const firstUncompletedSection = tutorialData.sections.findIndex(
-              (_: any, index: number) => !data.completedSections.includes(index)
+              (_: any, index: number) => !interactionData.completedSections.includes(index)
             );
             setCurrentSection(firstUncompletedSection !== -1 ? firstUncompletedSection : 0);
           }
 
-          // Check if tutorial is marked as completed
-          const userDocRef = doc(db, 'users', user.id);
-          const userDoc = await getDoc(userDocRef);
-          const completed = userDoc.data()?.completedTutorials || [];
+          // Check if tutorial is marked as completed using centralized user service
+          const userData = await getUser(user.id);
+          const completed = userData?.completedTutorials || [];
           if (completed.includes(id)) {
             setIsCompleted(true);
           }
         }
 
-        setTutorial({
-          ...tutorialData,
-          id: tutorialDoc.id
-        });
+        setTutorial(tutorialData);
       } catch (err) {
         console.error('Error loading tutorial:', err);
         setError('Failed to load tutorial');
@@ -159,16 +152,19 @@ const TutorialDetail = () => {
     if (!user || !tutorial) return;
 
     try {
+      // Update tutorial likes count (still direct as it's tutorial data)
       const tutorialRef = doc(db, 'tutorials', tutorial.id);
-      const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
-
       await updateDoc(tutorialRef, {
         likes: increment(isLiked ? -1 : 1)
       });
 
-      await updateDoc(userInteractionRef, {
-        liked: !isLiked
-      });
+      // Use centralized user service to update interaction
+      await updateUserSubcollectionDoc(
+        user.id, 
+        'tutorialInteractions', 
+        tutorial.id,
+        { liked: !isLiked }
+      );
 
       setIsLiked(!isLiked);
       setTutorial(prev => prev ? {
@@ -184,10 +180,14 @@ const TutorialDetail = () => {
     if (!user || !tutorial) return;
 
     try {
-      const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
-      await updateDoc(userInteractionRef, {
-        bookmarked: !isBookmarked
-      });
+      // Use centralized user service to update interaction
+      await updateUserSubcollectionDoc(
+        user.id, 
+        'tutorialInteractions', 
+        tutorial.id,
+        { bookmarked: !isBookmarked }
+      );
+      
       setIsBookmarked(!isBookmarked);
     } catch (error) {
       console.error('Error toggling bookmark:', error);
@@ -212,23 +212,18 @@ const TutorialDetail = () => {
     if (!user || !tutorial) return;
 
     try {
-      const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
-      const userInteractionDoc = await getDoc(userInteractionRef);
+      // Simplify this function since updateUserSubcollectionDoc now handles document creation
+      const updatedSections = [...completedSections, sectionIndex];
       
-      let updatedSections: number[];
-      if (!userInteractionDoc.exists()) {
-        updatedSections = [sectionIndex];
-        await setDoc(userInteractionRef, {
+      await updateUserSubcollectionDoc(
+        user.id,
+        'tutorialInteractions',
+        tutorial.id,
+        {
           completedSections: updatedSections,
           timeSpent
-        });
-      } else {
-        updatedSections = [...completedSections, sectionIndex];
-        await updateDoc(userInteractionRef, {
-          completedSections: updatedSections,
-          timeSpent
-        });
-      }
+        }
+      );
       
       setCompletedSections(updatedSections);
       
@@ -265,18 +260,17 @@ const TutorialDetail = () => {
     
     setQuizAnswers(updatedAnswers);
     
-    // Save quiz progress to Firestore
+    // Save quiz progress using centralized user service
     try {
-      const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
-      await updateDoc(userInteractionRef, {
-        quizAnswers: updatedAnswers
-      });
+      await updateUserSubcollectionDoc(
+        user.id,
+        'tutorialInteractions',
+        tutorial.id,
+        { quizAnswers: updatedAnswers }
+      );
     } catch (error) {
       console.error('Error saving quiz progress:', error);
     }
-
-    // Calculate score for this question
-    const isCorrect = selectedAnswer === tutorial.quiz.questions[questionId].correctAnswer;
 
     // If all questions are answered, calculate final score
     const allQuestionsAnswered = tutorial.quiz.questions.every((_, index) => {
@@ -293,19 +287,25 @@ const TutorialDetail = () => {
       const score = (correctAnswers / tutorial.quiz.questions.length) * 100;
       setQuizScore(score);
       
-      // Save the score to Firestore
+      // Save the score using centralized user service
       try {
-        const userInteractionRef = doc(db, 'users', user.id, 'tutorialInteractions', tutorial.id);
-        await updateDoc(userInteractionRef, {
-          quizScore: score,
-          quizPassed: score >= tutorial.quiz.passingScore
-        });
+        const quizPassed = score >= tutorial.quiz.passingScore;
         
-        if (score >= tutorial.quiz.passingScore) {
-          const userDocRef = doc(db, 'users', user.id);
-          await updateDoc(userDocRef, {
-            completedTutorials: arrayUnion(tutorial.id)
-          });
+        await updateUserSubcollectionDoc(
+          user.id,
+          'tutorialInteractions',
+          tutorial.id,
+          {
+            quizScore: score,
+            quizPassed
+          }
+        );
+        
+        if (quizPassed) {
+          // Use markTutorialComplete to update user's completed tutorials list
+          // This function also handles cache invalidation
+          await markTutorialComplete(user.id, tutorial.id);
+          
           setIsCompleted(true);
           setCelebrationVisible(true);
         }

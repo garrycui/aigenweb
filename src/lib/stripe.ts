@@ -1,7 +1,6 @@
 import { loadStripe } from '@stripe/stripe-js';
-import { db } from './firebase';
-import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import axios from 'axios';
+import { getUser, updateUser } from './cache'; // Import user service functions
 
 // Initialize Stripe with publishable key
 export const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -77,70 +76,19 @@ export const createCheckoutSession = async (userId: string, priceId: string) => 
   }
 };
 
-// Get subscription status
-export const getSubscriptionStatus = async (userId: string) => {
-  try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    const userData = userDoc.data();
-
-    if (!userData) {
-      return {
-        isActive: false,
-        isTrialing: false,
-        trialEndsAt: null,
-        plan: null,
-        start: null,
-        end: null,
-        cancelAtPeriodEnd: false
-      };
-    }
-
-    const now = new Date();
-    const trialEndsAt = userData.trialEndsAt?.toDate();
-    
-    // Only consider user to be in trial if they don't have an active subscription yet
-    const hasActiveSubscription = userData.subscriptionStatus === 'active' && userData.stripeSubscriptionId;
-    const isTrialing = !hasActiveSubscription && trialEndsAt ? now < trialEndsAt : false;
-
-    return {
-      isActive: userData.subscriptionStatus === 'active' || isTrialing,
-      isTrialing,
-      trialEndsAt: trialEndsAt || null,
-      plan: userData.subscriptionPlan || null,
-      start: userData.subscriptionStart?.toDate() || null,
-      end: userData.subscriptionEnd?.toDate() || null,
-      cancelAtPeriodEnd: userData.cancelAtPeriodEnd || false,
-      stripeSubscriptionId: userData.stripeSubscriptionId || null
-    };
-  } catch (error) {
-    console.error('Error getting subscription status:', error);
-    return {
-      isActive: false,
-      isTrialing: false,
-      trialEndsAt: null,
-      plan: null,
-      start: null,
-      end: null,
-      cancelAtPeriodEnd: false
-    };
-  }
-};
-
 // Start trial period
 export const startTrial = async (userId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + PLANS.MONTHLY.trialDays);
 
-    await setDoc(userRef, {
+    // Replace direct Firestore with updateUser
+    await updateUser(userId, {
       trialEndsAt,
       isTrialing: true,
       subscriptionStatus: 'trialing',
-      subscriptionPlan: null,
-      updatedAt: new Date()
-    }, { merge: true });
+      subscriptionPlan: null
+    });
 
     return {
       isTrialing: true,
@@ -155,10 +103,7 @@ export const startTrial = async (userId: string) => {
 // Cancel subscription
 export const cancelSubscription = async (userId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    const userData = userDoc.data();
-
+    const userData = await getUser(userId);
     if (!userData?.stripeSubscriptionId) {
       throw new Error('No active subscription found');
     }
@@ -170,10 +115,9 @@ export const cancelSubscription = async (userId: string) => {
     });
 
     if (response.data.success) {
-      // Update local state
-      await updateDoc(userRef, {
-        cancelAtPeriodEnd: true,
-        updatedAt: new Date()
+      // Update local state using user service
+      await updateUser(userId, {
+        cancelAtPeriodEnd: true
       });
       return { success: true };
     } else {
@@ -188,10 +132,7 @@ export const cancelSubscription = async (userId: string) => {
 // Resume canceled subscription
 export const resumeSubscription = async (userId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    const userData = userDoc.data();
-
+    const userData = await getUser(userId);
     if (!userData?.stripeSubscriptionId) {
       throw new Error('No subscription found');
     }
@@ -203,10 +144,9 @@ export const resumeSubscription = async (userId: string) => {
     });
 
     if (response.data.success) {
-      // Update local state
-      await updateDoc(userRef, {
-        cancelAtPeriodEnd: false,
-        updatedAt: new Date()
+      // Update local state using user service
+      await updateUser(userId, {
+        cancelAtPeriodEnd: false
       });
       return { success: true };
     } else {

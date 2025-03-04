@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, Lock, AlertCircle, User, FileText, Shield } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Mail, Lock, AlertCircle, User, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getLatestAssessment } from '../lib/api';
 import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
@@ -110,6 +110,9 @@ const Login = () => {
         }
         setSignUpSuccess(true);
       }
+    } catch (error: any) {
+      console.error('Authentication error:', error);
+      setError(error?.message || 'An unexpected error occurred');
     } finally {
       setIsSubmitting(false);
     }

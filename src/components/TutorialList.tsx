@@ -37,32 +37,24 @@ const TutorialList: React.FC<TutorialListProps> = ({
       try {
         setIsLoading(true);
         setError(null);
+        
+        // Reset to first page when filters change
+        if (categories.length > 0 || difficulties.length > 0) {
+          setCurrentPage(1);
+        }
+        
+        // Pass all categories and difficulties to the query
         const fetchedTutorials = await getTutorials(
           currentPage, 
           limit, 
           searchQuery, 
-          undefined, // category is now handled client-side
-          undefined, // difficulty is now handled client-side
+          categories.length > 0 ? categories : undefined, 
+          difficulties.length > 0 ? difficulties : undefined,
           sortField,
           sortDirection
         );
 
-        // Apply multi-select filters client-side
-        let filteredTutorials = fetchedTutorials;
-
-        if (categories.length > 0) {
-          filteredTutorials = filteredTutorials.filter(tutorial =>
-            categories.includes(tutorial.category)
-          );
-        }
-
-        if (difficulties.length > 0) {
-          filteredTutorials = filteredTutorials.filter(tutorial =>
-            difficulties.includes(tutorial.difficulty.toLowerCase())
-          );
-        }
-
-        setTutorials(filteredTutorials);
+        setTutorials(fetchedTutorials);
       } catch (err) {
         console.error('Error loading tutorials:', err);
         setError('Failed to load tutorials. Please try again.');

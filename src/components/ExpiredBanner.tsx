@@ -9,7 +9,7 @@ interface ExpiredBannerProps {
 const ExpiredBanner: React.FC<ExpiredBannerProps> = ({ onUpgrade }) => {
   const { user } = useAuth();
 
-  if (!user?.subscription?.status || user.subscription.status !== 'expired') return null;
+  if (!user?.subscriptionEnd || new Date(user.subscriptionEnd) > new Date()) return null;
 
   return (
     <div className="bg-red-600">

@@ -4,8 +4,6 @@ import {
   CreditCard, Clock, Shield, CheckCircle, AlertTriangle, 
   CreditCard as BillingIcon, Settings, ArrowRight 
 } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { 
   PLANS, 
   createCheckoutSession, 
@@ -31,33 +29,36 @@ const UserSubscription = () => {
     stripeSubscriptionId: string | null;
   } | null>(null);
 
+  // Add validation and safeguards for subscription data
   useEffect(() => {
-    const loadSubscription = async () => {
-      if (!user) return;
+    if (user) {
       try {
-        setIsLoading(true);
-        const userRef = doc(db, 'users', user.id);
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          
-          setSubscriptionData({
-            status: data.subscriptionStatus || 'inactive',
-            plan: data.subscriptionPlan || '',
-            currentPeriodEnd: data.subscriptionEnd?.toDate() || null,
-            cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
-            stripeSubscriptionId: data.stripeSubscriptionId || null
-          });
-        }
+        const currentPeriodEnd = user.subscriptionEnd instanceof Date 
+          ? user.subscriptionEnd 
+          : null;
+        
+        setSubscriptionData({
+          status: user.subscriptionStatus || 'inactive',
+          plan: user.subscriptionPlan || '',
+          currentPeriodEnd,
+          cancelAtPeriodEnd: !!user.cancelAtPeriodEnd,
+          stripeSubscriptionId: user.stripeSubscriptionId || null
+        });
       } catch (error) {
-        console.error('Error loading subscription:', error);
-        setError('Failed to load subscription data');
+        console.error('Error processing subscription data:', error);
+        // Use fallback data
+        setSubscriptionData({
+          status: 'inactive',
+          plan: '',
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          stripeSubscriptionId: null
+        });
+        setError('There was an issue loading your subscription data');
       } finally {
         setIsLoading(false);
       }
-    };
-
-    loadSubscription();
+    }
   }, [user]);
 
   const handleUpgrade = async (priceId: string) => {

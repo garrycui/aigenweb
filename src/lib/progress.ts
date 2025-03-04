@@ -1,5 +1,6 @@
 import { db } from './firebase';
-import { doc, getDoc, updateDoc, increment, collection, query, where, getDocs, Timestamp, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment, collection, query, where, getDocs, Timestamp, setDoc } from 'firebase/firestore';
+import { getUser, updateUser, tutorialCache, invalidateUserCache } from './cache'; // Import user service functions
 
 interface MonthlyProgress {
   month: string;
@@ -11,10 +12,7 @@ interface MonthlyProgress {
 
 export const calculateMonthlyImprovement = async (userId: string): Promise<number> => {
   try {
-    const userRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userRef);
-    const userData = userDoc.data();
-
+    const userData = await getUser(userId); // Use getUser instead of direct Firestore
     if (!userData) return 0;
 
     // Get current and previous month's data
@@ -58,25 +56,36 @@ export const calculateMonthlyImprovement = async (userId: string): Promise<numbe
 
 export const updateUserProgress = async (userId: string, type: 'tutorial' | 'post' | 'goal') => {
   try {
-    const userRef = doc(db, 'users', userId);
+    // Get current counts from user data
+    const userData = await getUser(userId);
+    if (!userData) return;
+    
+    // Prepare updates using userData
+    const updates: any = {};
+    if (type === 'tutorial') {
+      const currentCount = userData.completedTutorialsCount || 0;
+      updates.completedTutorialsCount = currentCount + 1;
+    } else if (type === 'post') {
+      const currentCount = userData.publishedPostsCount || 0;
+      updates.publishedPostsCount = currentCount + 1;
+    } else if (type === 'goal') {
+      const currentCount = userData.completedGoalsCount || 0;
+      updates.completedGoalsCount = currentCount + 1;
+    }
+    
+    // Update user with new counts
+    await updateUser(userId, updates);
+
+    // The monthly progress subcollection needs to handle document creation
     const month = new Date().toISOString().slice(0, 7);
     const progressRef = doc(db, 'users', userId, 'monthlyProgress', month);
 
-    // Update user document
-    const updates: any = {};
-    if (type === 'tutorial') {
-      updates.completedTutorialsCount = increment(1);
-    } else if (type === 'post') {
-      updates.publishedPostsCount = increment(1);
-    } else if (type === 'goal') {
-      updates.completedGoalsCount = increment(1);
-    }
-    await updateDoc(userRef, updates);
-
-    // Update monthly progress
+    // Check if the document exists first
     const progressDoc = await getDoc(progressRef);
+    
     if (!progressDoc.exists()) {
-      await updateDoc(progressRef, {
+      // Document doesn't exist - create it instead of updating
+      await setDoc(progressRef, {
         month,
         completedTutorials: type === 'tutorial' ? 1 : 0,
         forumPosts: type === 'post' ? 1 : 0,
@@ -85,6 +94,7 @@ export const updateUserProgress = async (userId: string, type: 'tutorial' | 'pos
         updatedAt: Timestamp.now()
       });
     } else {
+      // Document exists - update it
       const updates: any = {
         updatedAt: Timestamp.now(),
         totalImprovement: increment(1)
@@ -102,11 +112,32 @@ export const updateUserProgress = async (userId: string, type: 'tutorial' | 'pos
 
 export const markTutorialComplete = async (userId: string, tutorialId: string) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      completedTutorials: arrayUnion(tutorialId)
-    });
-    await updateUserProgress(userId, 'tutorial');
+    // Get existing completedTutorials
+    const userData = await getUser(userId);
+    if (!userData) return;
+    
+    // Prepare the complete list including the new one
+    const completedTutorials = [...(userData.completedTutorials || [])];
+    if (!completedTutorials.includes(tutorialId)) {
+      completedTutorials.push(tutorialId);
+      
+      // Update the user document
+      await updateUser(userId, { completedTutorials });
+      
+      // Update progress
+      await updateUserProgress(userId, 'tutorial');
+      
+      // Invalidate all relevant caches
+      invalidateUserCache(userId); // This will clear all user-related caches
+      
+      // Clear recommended tutorials cache which is based on completed tutorials
+      const recommendedCacheKeys = tutorialCache.keys().filter(key => 
+        key.includes(`recommended-tutorials-${userId}`)
+      );
+      recommendedCacheKeys.forEach(key => tutorialCache.delete(key));
+      
+      console.log('Cache invalidated for completed tutorial', tutorialId);
+    }
   } catch (error) {
     console.error('Error marking tutorial complete:', error);
     throw error;
